@@ -1,50 +1,67 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# dchat Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. English-Only Repository (NON-NEGOTIABLE)
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+Repository language is English: code, comments, docs, specs, tests, commit messages.
+A developer may talk to the agent in any language; the agent MUST write all repo
+artifacts in English by default, without asking. Exception: dedicated i18n tests
+may use other languages for the strings under test. User-facing strings default
+to English; other locales arrive only via i18n, never as hardcoded non-English text.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Spec-Driven (NON-NEGOTIABLE)
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+Specs are the source of truth. Code is fitted to the spec, never the reverse.
+Every feature starts from `.specify/memory/constitution.md` compliance, then
+`spec.md` (what and why, no tech stack), `plan.md` (how), `tasks.md` (ordered steps).
+Implementation MUST NOT begin with failing clarify/checklist/analyze gates unresolved.
+Code deleted can be rebuilt from specs via implement + converge until Converged.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. Test-First
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Tests are written before or alongside implementation and MUST pass before review:
+`npm test` (tsx --test) and `npm run typecheck` (tsc --noEmit) are both green.
+New behavior without a covering test is incomplete. Failing tests are never
+removed or weakened to make the suite pass without explicit human approval.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### IV. Simplicity and CLI Contract
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+Prefer the smallest change that fully solves the task (YAGNI). The CLI is
+one-shot: ask → print answer → exit. Human-readable stdout for answers, stderr
+for errors, non-zero exit codes on failure (`2` usage error, `1` unanswered).
+No new dependencies, config files, or processes without a spec justifying them.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### V. Secrets Safety (NON-NEGOTIABLE)
+
+Never commit, log, or print API keys or tokens. Key resolution goes only through
+`src/keys.ts` (`resolveKey`): explicit `--key` spec, else `{PROVIDER}_API_KEY`
+from env, `./.env`, `~/.env`, OS keychain. Tests MUST use injected fakes, never
+real env, disk, or keychain.
+
+## Technology Constraints
+
+Stack: TypeScript strict, ESM (`type: module`, NodeNext), Node 22+. Run `.ts`
+without compiling via `tsx`. Core runtime is `@earendil-works/pi-durable`
+(Harness.open + root + submit + wait). Keep `package.json` minimal: only what the
+program needs to run; `specify-cli` (Python via `uv`) is per-user tooling and
+MUST NOT appear in `dependencies`.
+
+## Development Workflow
+
+One step at a time; the human reviews each Spec Kit step before the next
+(constitution once, then specify → clarify → plan → checklist → tasks →
+analyze → implement → converge; short path for small changes skips
+clarify/checklist/analyze). Start with the next small change, never with
+"describe the whole system". Keep the repo agent-neutral (integration `none`);
+agent files never land in commits. Commits follow Conventional Commits
+(`feat`/`fix`/`docs`/`refactor`/`test`/`chore`).
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes all other practices. Amendments require a documented
+proposal, human approval, and a version bump. All specs, plans, and reviews MUST
+verify constitution compliance; complexity MUST be justified. Use `AGENTS.md`
+for always-loaded agent guidance and `docs/setup-spec-kit.md` for per-user setup.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-11-07 | **Last Amended**: 2026-11-07
