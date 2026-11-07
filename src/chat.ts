@@ -19,6 +19,9 @@ import { createRequire } from "node:module";
 import { resolveKey } from "./keys.js";
 import { standardProviders } from "./standardProviders.js";
 import { fauxProviders } from "./fauxProvider.js";
+import { readProviderArg, providerHelp } from "./providerArg.js";
+import { readKeyArg, keyHelp } from "./keyArg.js";
+import { readModelArg, modelHelp } from "./modelArg.js";
 
 const DEFAULT_PROVIDER = "openrouter";
 
@@ -41,13 +44,9 @@ const ASK_HELP = [
 	"Ask one question, print the answer, exit.",
 	"",
 	"Options:",
-	"  --provider P     Provider id (default: openrouter)",
-	"  --key SPEC       Key, or its source: literal, env:NAME, env,",
-	"                   file:PATH, dotenv:PATH[?VAR=NAME], dotenv[:VAR=NAME],",
-	"                   keychain[:SERVICE[:ACCOUNT]].",
-	"                   Without --key: {PROVIDER}_API_KEY from env, ./.env,",
-	"                   ~/.env, OS keychain.",
-	"  --model MODEL    Model id (default: first in provider catalog)",
+	...providerHelp,
+	...keyHelp,
+	...modelHelp,
 	"  --help, -h       Show this help",
 	"",
 	"Examples:",
@@ -104,52 +103,42 @@ async function main(): Promise<void> {
 	}
 
 	// Parse: dchat ask [--provider P] [--key K] [--model M] [text...]
+	// Argument-processing loop: hand the current token list to every reader
+	// ("process"); each returns what it did not consume. Repeat while the
+	// remainder shrinks; stop on a pass that consumes nothing or empties it.
+	// Detach a reader: delete its import, its call block below, and its help
+	// spread above — nothing else.
+	let rest: string[];
+	let provider: string | undefined;
 	let key: string | undefined;
-	let provider = DEFAULT_PROVIDER;
 	let model: string | undefined;
-	let modelGiven = false;
-	const textParts: string[] = [];
-	for (let i = 1; i < argv.length; i++) {
-		const a = argv[i];
-		if (a === "--provider" || a === "-p") {
-			const v = argv[++i];
-			if (!v) {
-				console.error('Missing value for --provider. Try "dchat ask --help".');
-				process.exitCode = 2;
-				return;
-			}
-			provider = v;
-		} else if (a.startsWith("--provider=")) {
-			provider = a.slice("--provider=".length);
-		} else if (a === "--key" || a === "-k") {
-			key = argv[++i];
-			if (!key) {
-				console.error('Missing value for --key. Try "dchat ask --help".');
-				process.exitCode = 2;
-				return;
-			}
-		} else if (a.startsWith("--key=")) {
-			key = a.slice("--key=".length);
-		} else if (a === "--model" || a === "-m") {
-			const v = argv[++i];
-			if (!v) {
-				console.error('Missing value for --model. Try "dchat ask --help".');
-				process.exitCode = 2;
-				return;
-			}
-			model = v;
-			modelGiven = true;
-		} else if (a.startsWith("--model=")) {
-			model = a.slice("--model=".length);
-			modelGiven = true;
-		} else if (a.startsWith("-")) {
-			console.error(`Unknown option: ${a}. Try "dchat ask --help".`);
-			process.exitCode = 2;
-			return;
-		} else {
-			textParts.push(a);
+	try {
+		rest = argv.slice(1);
+		for (;;) {
+			const n = rest.length;
+			if (n === 0) break;
+			const p = readProviderArg(rest);
+			if (p.provider !== undefined) provider = p.provider;
+			const k = readKeyArg(p.rest);
+			if (k.key !== undefined) key = k.key;
+			const m = readModelArg(k.rest);
+			if (m.model !== undefined) model = m.model;
+			rest = m.rest;
+			if (rest.length === n) break; // nobody consumed anything — stop
 		}
+		provider ??= DEFAULT_PROVIDER;
+	} catch (e) {
+		console.error(e instanceof Error ? e.message : String(e));
+		process.exitCode = 2;
+		return;
 	}
+	const unknown = rest.find((t) => t.startsWith("-"));
+	if (unknown) {
+		console.error(`Unknown option: ${unknown}. Try "dchat ask --help".`);
+		process.exitCode = 2;
+		return;
+	}
+	const textParts: string[] = rest;
 
 	let text = textParts.join(" ").trim();
 	if (!text) text = (await readStdin()).trim();

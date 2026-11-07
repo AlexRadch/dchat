@@ -26,6 +26,7 @@ This project is developed from specifications via GitHub Spec Kit (SDD). To set 
 - Specs are the source of truth. Code is fitted to the spec, never the reverse.
 - No code changes without a spec: new behavior or a behavior change starts from `spec.md`, then `plan.md` + `tasks.md`, then code. Exception: typo or an obvious bug where the specified behavior already covers the fix — fix directly, no spec update. If the fix changes behavior, update the spec first.
 - Specs live in the repo: `.specify/` (templates, scripts, constitution) and `specs/<feature>/` (`spec.md`, `plan.md`, `tasks.md`). Delete the code — the spec stays, and the feature can be rebuilt from it via implement + converge.
+- Spec registry: `specs/README.md` groups every spec by area (providers, arguments, ...). Read it first to find which spec covers what; add a row for every new spec.
 - Keep the repo agent-neutral (integration `none`). Agent files never land in commits.
 
 ### Per-feature cycle
