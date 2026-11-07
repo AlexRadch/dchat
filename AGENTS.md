@@ -2,6 +2,11 @@
 
 One-shot terminal chat for language models on Pi Durable. Run a command — get an answer — exit.
 
+## Language
+
+Development language is English: code, comments, docs, specs, commit messages.
+The user may dictate in any language (Russian, Chinese, anything); the agent translates intent into English artifacts without asking.
+
 ## Commands
 
 - `npm test` — tests (`tsx --test tests/*.test.ts`)

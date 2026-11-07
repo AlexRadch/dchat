@@ -1,14 +1,18 @@
 # dchat
 
-Терминальный чат для языковых моделей на Pi Durable.
+One-shot terminal chat for language models on Pi Durable.
 
-Вызвал команду — получил ответ — вышел.
+Run a command — get an answer — exit.
 
-## Статус
+## Status
 
-Заготовка: проект создан, зависимости стоят. Харнеса пока нет.
+Stub: project created, dependencies installed. No harness yet.
 
-## Зависимости
+## Dependencies
 
-- `@earendil-works/pi-durable` — ядро: разговоры, задачи, чекпоинты (остальное подтянется само);
-- `tsx` — запуск `.ts` без компиляции.
+- `@earendil-works/pi-durable` — core: conversations, tasks, checkpoints (rest pulls itself in);
+- `tsx` — run `.ts` without compiling.
+
+## Development language
+
+English for code, comments, docs, specs, and commits. The user may dictate in any language — translate intent into English artifacts.
