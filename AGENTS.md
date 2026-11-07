@@ -4,8 +4,8 @@ One-shot terminal chat for language models on Pi Durable. Run a command — get 
 
 ## Language
 
-Development language is English: code, comments, docs, specs, commit messages.
-The user may dictate in any language (Russian, Chinese, anything); the agent translates intent into English artifacts without asking.
+Repository language is English: code, comments, docs, specs, tests, commit messages.
+A developer may talk to the agent in any language; the agent must write all repo artifacts in English by default, without asking. Exception: dedicated i18n tests may use other languages for the strings under test. User-facing strings default to English; other locales arrive only via i18n, never as hardcoded non-English text.
 
 ## Commands
 

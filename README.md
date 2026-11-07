@@ -15,4 +15,5 @@ Stub: project created, dependencies installed. No harness yet.
 
 ## Development language
 
-English for code, comments, docs, specs, and commits. The user may dictate in any language — translate intent into English artifacts.
+Repository language is English: code, comments, docs, specs, tests, commits.
+A developer may talk to the agent in any language; the agent writes all repo artifacts in English by default. Exception: dedicated i18n tests may use other languages for the strings under test. User-facing strings default to English; other locales arrive only via i18n, never as hardcoded non-English text.
