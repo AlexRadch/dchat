@@ -50,17 +50,20 @@ A developer smoke-tests without a key or network via the faux provider and gets 
 
 ### Functional Requirements
 
-- **FR-001**: The entry point MUST NOT import provider implementations directly; it MUST obtain the standard providers through a single `standardProviders` component call.
-- **FR-002**: The faux test provider MUST be attached through a single `addFauxProvider` component call on the models object.
-- **FR-003**: The standard-providers component MUST live in its own file and MUST be the only place importing the standard provider implementations.
-- **FR-004**: The faux-provider component MUST live in its own file and MUST be the only place (besides its tests) importing the faux provider implementation.
-- **FR-005**: All existing CLI behavior MUST stay unchanged: commands, flags, help text, stdout/stderr contract, and exit codes (0 answer, 2 usage/config, 1 unanswered).
-- **FR-006**: The known-provider list in the unknown-provider error MUST still include faux plus every standard provider.
+- **FR-001**: The entry point MUST NOT import provider implementations directly; it MUST obtain provider arrays through component calls only.
+- **FR-002**: Every provider component MUST share one shape: it takes `credentials` and `authContext` as two plain arguments and returns only its own provider array. No component may assume another component's needs — a test component takes the same inputs as a real one, even if it ignores them today. No wrapper objects for a handful of args.
+- **FR-003**: No component may register itself into the shared models object. Each component only returns its own array; the entry point adds every returned array to the models object itself, the same way for all components.
+- **FR-004**: The faux test component teaches its provider to echo at creation (via a response factory over the transcript), so no caller ever prepares answers. The entry point MUST NOT touch provider handles, messages, or model ids directly.
+- **FR-005**: The standard-providers component MUST live in its own file and MUST be the only place importing the standard provider implementations.
+- **FR-006**: The faux-provider component MUST live in its own file and MUST be the only place (besides its tests) importing the faux provider implementation.
+- **FR-007**: All existing CLI behavior MUST stay unchanged: commands, flags, help text, stdout/stderr contract, and exit codes (0 answer, 2 usage/config, 1 unanswered).
+- **FR-008**: The known-provider list in the unknown-provider error MUST still include faux plus every standard provider.
 
 ### Key Entities
 
-- **Standard providers component**: returns the ready models object with standard providers; owns their imports.
-- **Faux provider component**: attaches the keyless echo provider to a given models object; owns its import.
+- **Provider component**: takes `credentials` and `authContext` as two plain arguments, returns its own provider array. Never touches the shared models object. Both components share this shape.
+- **Standard providers component**: returns the standard array; owns standard imports.
+- **Faux provider component**: returns the test array (one entry today, may grow); owns faux imports and the echo response factory.
 
 ## Success Criteria *(mandatory)*
 

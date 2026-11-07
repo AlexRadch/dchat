@@ -5,12 +5,8 @@
 //   dchat ask [--provider P] [--key K] [--model M] <text>   — one question, answer, exit
 //   echo <text> | dchat ask [...]            — same, text via stdin
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { builtinModels } from "@earendil-works/pi-ai/providers/all";
-import {
-	fauxAssistantMessage,
-	fauxProvider,
-} from "@earendil-works/pi-ai/providers/faux";
 import type { Credential, CredentialStore } from "@earendil-works/pi-ai";
+import { createModels } from "@earendil-works/pi-ai";
 import {
 	AssistantEntry,
 	createRegistry,
@@ -21,6 +17,8 @@ import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import { resolveKey } from "./keys.js";
+import { standardProviders } from "./standardProviders.js";
+import { fauxProviders } from "./fauxProvider.js";
 
 const DEFAULT_PROVIDER = "openrouter";
 
@@ -232,9 +230,12 @@ async function main(): Promise<void> {
 		fileExists: async (_path: string) => false,
 	};
 
-	const models = builtinModels({ credentials, authContext });
-	const faux = fauxProvider();
-	models.setProvider(faux.provider);
+	const providers = [
+		...standardProviders(credentials, authContext),
+		...fauxProviders(credentials, authContext),
+	];
+	const models = createModels({ credentials, authContext });
+	for (const provider of providers) models.setProvider(provider);
 
 	// Unknown provider: fail before touching the network (faux included).
 	if (!models.getProvider(provider)) {
@@ -245,13 +246,6 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	// shortcut: test provider needs no key; answer echoes the question.
-	if (provider === "faux" && !modelGiven) {
-		model = faux.getModel().id;
-	}
-	if (provider === "faux") {
-		faux.setResponses([fauxAssistantMessage(`echo: ${text}`)]);
-	}
 	// Default: first model in that provider's catalog — no hardcoded ids.
 	if (model === undefined) {
 		const first = models.getModels(provider)[0];
