@@ -155,3 +155,7 @@ vite.config.ts.timestamp-*
 
 # Python cache from Spec Kit scripts (runs from repo root, cache lands by the script)
 __pycache__/
+
+# Personal agent overlays (never committed): AGENTS.local.md adds to AGENTS.md
+AGENTS.local.md
+CLAUDE.local.md

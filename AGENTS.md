@@ -23,6 +23,7 @@ This project is developed from specifications via GitHub Spec Kit (SDD).
 - No code changes without a spec: new behavior or a behavior change starts from `spec.md`, then `plan.md` + `tasks.md`, then code. Exception: typo or an obvious bug where the specified behavior already covers the fix — fix directly, no spec update. If the fix changes behavior, update the spec first.
 - Specs live in the repo: `.specify/` (templates, scripts, constitution) and `specs/<feature>/` (`spec.md`, `plan.md`, `tasks.md`). Delete the code — the spec stays, and the feature can be rebuilt from it via implement + converge.
 - Keep the repo agent-neutral (integration `none`). Agent files never land in commits.
+- Personal overlay: if `AGENTS.local.md` exists next to this file, it adds personal exceptions on top of these shared rules. It never replaces this file and never lands in commits (see `.gitignore`).
 
 ### Setup
 
