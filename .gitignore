@@ -152,3 +152,6 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Python cache from Spec Kit scripts (runs from repo root, cache lands by the script)
+__pycache__/
