@@ -1,5 +1,20 @@
-// Key resolution: pure functions over injected sources, so tests can
-// drive them without touching env, disk, or the OS keychain.
+// Key-spec handoff (spec 007): the input boundary only. Takes the raw
+// --key string from the loop's options map and forwards it byte-for-byte.
+// SPEC-form parsing below (resolveExplicitKey etc.) is intentionally
+// un-spec'd until a follow-up spec covers it.
+export function keySpecFromOptions(
+	options: Record<string, string[]>,
+): string | undefined {
+	return options["--key"]?.[0];
+}
+
+// Exact stderr line the handler prints when resolution reports missing.
+// Kept here so the wording is tested in one place; the handler itself
+// (printing + exit 2) arrives with the command spec.
+export function missingKeyMessage(spec: string): string {
+	return `Key source yielded no key: ${spec}`;
+}
+
 export interface KeySources {
 	env(name: string): string | undefined;
 	readFile(path: string): string | undefined;

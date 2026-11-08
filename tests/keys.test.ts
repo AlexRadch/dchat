@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+	keySpecFromOptions,
+	missingKeyMessage,
 	parseDotenv,
 	stdEnvName,
 	readDotenvVar,
@@ -20,6 +22,40 @@ function src(over: Partial<KeySources> = {}): KeySources {
 		...over,
 	};
 }
+
+describe("keySpecFromOptions (spec 007 handoff)", () => {
+	it("forwards the raw string byte-for-byte", () => {
+		assert.equal(keySpecFromOptions({ "--key": ["env:MY_KEY"] }), "env:MY_KEY");
+	});
+
+	it("keeps spaces as-is, no trimming", () => {
+		assert.equal(keySpecFromOptions({ "--key": ["  sk-123  "] }), "  sk-123  ");
+	});
+
+	it("keeps : = / ? characters untouched", () => {
+		assert.equal(
+			keySpecFromOptions({ "--key": ["dotenv:/x.env?VAR=K=V"] }),
+			"dotenv:/x.env?VAR=K=V",
+		);
+	});
+
+	it("absent --key maps to undefined, never empty string", () => {
+		assert.equal(keySpecFromOptions({}), undefined);
+	});
+
+	it("reads index 0 only, never joins", () => {
+		assert.equal(keySpecFromOptions({ "--key": ["a", "b"] }), "a");
+	});
+});
+
+describe("missingKeyMessage (spec 007 handoff)", () => {
+	it("echoes the exact spec", () => {
+		assert.equal(
+			missingKeyMessage("env:NOPE"),
+			"Key source yielded no key: env:NOPE",
+		);
+	});
+});
 
 describe("parseDotenv", () => {
 	it("parses KEY=value, quotes, export, comments", () => {

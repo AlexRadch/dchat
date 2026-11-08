@@ -19,3 +19,9 @@ Mechanics in 002; one spec per reader. A new flag family = a new spec + a new re
 | [004-key-arg](./004-key-arg/spec.md) | Option definition: `--key` / `-k` / arity 1 / min 0, max 1, plus help fragment | `src/keyArg.ts` |
 | [005-model-arg](./005-model-arg/spec.md) | Option definition: `--model` / `-m` / arity 1 / min 0, max 1, plus help fragment | `src/modelArg.ts` |
 | [006-global-help](./006-global-help/spec.md) | Global `--help` / `-h` owned by the loop: general help before any command, verbatim command block after; stops the scan, handler never called | `src/chat.ts` (inline help handling) |
+
+## Keys
+
+| Spec | What | Builds |
+|------|------|--------|
+| [007-key-spec](./007-key-spec/spec.md) | Key-spec handoff: raw `--key` string → `resolveKey` unchanged; absent → `undefined`; explicit-miss → named error; form parsing out of scope | `src/chat.ts` (handoff), `src/keys.ts` (input boundary) |
