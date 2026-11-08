@@ -10,15 +10,11 @@ Groups of feature specs in this repo. Numbers are birth order only (never reused
 
 ## Arguments
 
-Mechanics in 002; one spec per reader. A new flag family = a new spec + a new reader file. Global help is 006 (inline in the loop, not a reader file).
+Mechanics in 002 (grammar is the contract). Flags and options live in each command's `defs`; globals (003) are shared across commands. Help is a loop rule, never declared.
 
 | Spec | What | Builds |
 |------|------|--------|
-| [002-argument-readers](./002-argument-readers/spec.md) | Single scan loop fed by global options + command table; Option/Command types; fixed arity; one-token text; help owned by loop | `src/chat.ts` (loop), `src/args.ts` (types) |
-| [003-provider-arg](./003-provider-arg/spec.md) | Option definition: `--provider` / `-p` / arity 1 / min 0, max 1, plus help fragment | `src/providerArg.ts` |
-| [004-key-arg](./004-key-arg/spec.md) | Option definition: `--key` / `-k` / arity 1 / min 0, max 1, plus help fragment | `src/keyArg.ts` |
-| [005-model-arg](./005-model-arg/spec.md) | Option definition: `--model` / `-m` / arity 1 / min 0, max 1, plus help fragment | `src/modelArg.ts` |
-| [006-global-help](./006-global-help/spec.md) | Global `--help` / `-h` owned by the loop: general help before any command, verbatim command block after; stops the scan, handler never called | `src/chat.ts` (inline help handling) |
+| [002-argument-readers](./002-argument-readers/spec.md) | Grammar is the contract; Flag/Option/Def/Command types; globals + command table; help is a loop rule | `src/args.ts` (types + stub scan) |
 
 ## Keys
 

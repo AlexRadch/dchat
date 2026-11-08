@@ -2,7 +2,7 @@
 // Ask execution is PARKED (commented, not deleted) until the ask command spec
 // re-enables it. Until then the command table holds no enabled commands:
 // any command word fails as unknown, only global --help works.
-import { scanArgv, ParseError, GLOBAL_OPTIONS, COMMANDS } from "./args.js";
+import { scanArgv, ParseError } from "./args.js";
 
 const GENERAL_HELP = [
 	"Usage: dchat <command> [options]",
@@ -22,17 +22,14 @@ async function main(): Promise<void> {
 		return;
 	}
 	try {
-		const result = scanArgv(argv, GLOBAL_OPTIONS, COMMANDS, GENERAL_HELP);
+		const result = scanArgv(argv, [], [], GENERAL_HELP);
 		if (result.help !== undefined) {
 			console.log(result.help);
 			return;
 		}
-		if (!result.command) {
-			console.error(GENERAL_HELP);
-			process.exitCode = 2;
-			return;
-		}
-		await result.command.run({ options: result.options, text: result.text });
+		console.error(GENERAL_HELP);
+		process.exitCode = 2;
+		return;
 	} catch (e) {
 		if (e instanceof ParseError) {
 			console.error(`${e.message}\n\n${e.helpBlock}`);
