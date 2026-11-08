@@ -10,14 +10,9 @@ Groups of feature specs in this repo. Numbers are birth order only (never reused
 
 ## Arguments
 
-Mechanics in 002 (grammar is the contract). Flags and options live in each command's `defs`; globals (003) are shared across commands. Help is a loop rule, never declared.
+Mechanics in 002 (grammar is the contract). Flags and options live in each command's `defs`; globals (008) are shared across commands. Help is a loop rule, never declared.
 
 | Spec | What | Builds |
 |------|------|--------|
 | [002-argument-readers](./002-argument-readers/spec.md) | Grammar is the contract; Flag/Option/Def/Command types; globals + command table; help is a loop rule | `src/args.ts` (types + stub scan) |
-
-## Keys
-
-| Spec | What | Builds |
-|------|------|--------|
-| [007-key-spec](./007-key-spec/spec.md) | Key-spec handoff: raw `--key` string → `resolveKey` unchanged; absent → `undefined`; explicit-miss → named error; form parsing out of scope | `src/chat.ts` (handoff), `src/keys.ts` (input boundary) |
+| [008-global-args](./008-global-args/spec.md) | Global command-line arguments: `--provider` / `--key` / `--model` (all options, single-shot); `--help` owned by loop, not listed | `src/args.ts` (`globals: Def[]`) |
