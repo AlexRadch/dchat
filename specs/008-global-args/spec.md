@@ -14,11 +14,11 @@ Enumerate the global command-line arguments — flags and options valid before a
 
 ## Globals Table
 
-| Spelling | Kind | Repeatable | Meaning |
-|----------|------|------------|---------|
-| `--provider` / `-p` | option | `false` | Provider id (default: openrouter) |
-| `--key` / `-k` | option | `false` | Key, or its source: literal, `env:NAME`, `env`, `file:PATH`, `dotenv:PATH[?VAR=NAME]`, `keychain[:SERVICE[:ACCOUNT]]`. Absent → implicit chain (`{PROVIDER}_API_KEY` from env, `./.env`, `~/.env`, OS keychain). |
-| `--model` / `-m` | option | `false` | Model id (default: first in provider catalog) |
+| Spelling | Kind | Export | Repeatable | Meaning |
+|----------|------|--------|------------|---------|
+| `--provider` / `-p` | option | `providerOption` | `false` | Provider id (default: openrouter) |
+| `--key` / `-k` | option | `keyOption` | `false` | Key, or its source: literal, `env:NAME`, `env`, `file:PATH`, `dotenv:PATH[?VAR=NAME]`, `keychain[:SERVICE[:ACCOUNT]]`. Absent → implicit chain (`{PROVIDER}_API_KEY` from env, `./.env`, `~/.env`, OS keychain). |
+| `--model` / `-m` | option | `modelOption` | `false` | Model id (default: first in provider catalog) |
 
 `--help` / `-h` works globally but is owned by the loop (002 FR-007), not by this table.
 
@@ -44,10 +44,10 @@ A future global (e.g. a `--verbose` flag or a shared `--provider` option) is add
 
 ## Requirements
 
-- **FR-001**: The global list is `GLOBAL_ARGS: Def[]` in `src/globalArgs.ts` using the 002 `Def` type (`{ kind: "flag"; def: Flag } | { kind: "option"; def: Option }`). `Flag` and `Option` stay clean; `kind` lives only in the wrapper. Today: three options (`--provider` / `-p`, `--key` / `-k`, `--model` / `-m`, all `repeatable: false`).
+- **FR-001**: The global list is `GLOBAL_ARGS: Def[]` in `src/globalArgs.ts` using the 002 `Def` type (`{ kind: "flag"; def: Flag } | { kind: "option"; def: Option }`). `Flag` and `Option` stay clean; `kind` lives only in the wrapper. Today: three options (`providerOption`: `--provider` / `-p`, `keyOption`: `--key` / `-k`, `modelOption`: `--model` / `-m`, all `repeatable: false`). Each entry is exported individually; `GLOBAL_ARGS` is the array of the three entries. Commands reference entries, never copy spellings.
 - **FR-002**: `--help` / `-h` MUST NOT appear in this table. It is a loop rule (002 FR-007), always active, stops the scan, prints to stdout, exit 0.
 - **FR-003**: Before any command word ONLY this list (plus the help rule) is accepted. A command-owned spelling before its word fails immediately, never buffered.
-- **FR-004**: A global keeps one shape everywhere: same long form, same alias, same `repeatable` (for options). A command MUST NOT redeclare a global spelling with a different shape; within one command no two defs (own + global) may claim the same spelling.
+- **FR-004**: A global keeps one shape everywhere: same long form, same alias, same `repeatable` (for options). A command that needs a global references the exported entry (never copies its spellings); a command MUST NOT redeclare a global spelling with a different shape; within one command no two defs (own + global) may claim the same spelling. Which commands use which globals is stated in each command's spec, never here.
 - **FR-005**: `repeatable: false` (options) and any flag repeated → `Too many occurrences` error, exit 2. `repeatable: true` accumulates values in order into the single `options` map (`Record<string, boolean | string[]>` per 002).
 - **FR-006**: Adding or removing a row here is the only edit needed to change what is valid before a command word. Detaching a global removes its spellings everywhere at once.
 

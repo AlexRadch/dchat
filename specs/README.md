@@ -14,5 +14,5 @@ Mechanics in 002 (grammar is the contract). Flags and options live in each comma
 
 | Spec | What | Builds |
 |------|------|--------|
-| [002-argument-readers](./002-argument-readers/spec.md) | Grammar is the contract; Flag/Option/Def/Command types; globals + command table; help is a loop rule | `src/args.ts` (types + stub scan), `src/globalArgs.ts` (GLOBAL_ARGS) |
-| [008-global-args](./008-global-args/spec.md) | Global command-line arguments for commands: `--provider` / `--key` / `--model` (all options, single-shot); `--help` owned by loop, not listed | `src/globalArgs.ts` (`GLOBAL_ARGS: Def[]`) |
+| [002-argument-readers](./002-argument-readers/spec.md) | Grammar is the contract; Flag/Option/Def/Command types; real single-pass scan; help is a loop rule | `src/args.ts` (types + scan), `src/globalArgs.ts` (GLOBAL_ARGS), `tests/scanArgv.test.ts` |
+| [008-global-args](./008-global-args/spec.md) | Global command-line arguments for commands: `--provider` / `--key` / `--model` (all options, single-shot), each exported individually for reference; `--help` owned by loop, not listed | `src/globalArgs.ts` (`GLOBAL_ARGS: Def[]` + per-entry exports) |
