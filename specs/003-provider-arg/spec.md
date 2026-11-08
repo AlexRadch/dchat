@@ -1,31 +1,31 @@
-# Feature Specification: Provider Argument Reader
+# Feature Specification: Provider Option Definition
 
 **Feature Branch**: `003-provider-arg`
 
 **Created**: 2026-11-07
 
-**Status**: Draft
+**Status**: Draft (rewritten 2026-11-08 — lazy-reader model replaced by a single-scan `Option` definition; no reader function remains)
 
-**Input**: User description: "Lazy first-token reader for the provider option: owns --provider spellings and help lines, consumes at most one occurrence per pass of the argument-processing loop. Detachable by deleting its file, import, call line, and help spread."
+**Input**: User description: "Provider option as one shared `Option` definition: owns `--provider` spellings and help lines, referenced (never copied) by every command that accepts it. The loop in 002 owns all scanning; this spec fixes the definition only."
 
-**Parent**: `specs/002-argument-readers/spec.md` (argument-processing loop mechanics: FR-003 lazy strategy allowed, FR-004 argument-processing loop; this spec fixes one reader's spellings and strategy).
+**Parent**: `specs/002-argument-readers/spec.md` (single-scan loop, `Option`/`Command` types, fixed arity, occurrence bounds, loop-owned help; this spec fixes one option's definition).
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Provider flag is read lazily (Priority: P1)
+### User Story 1 - Provider flag is collected by the loop (Priority: P1)
 
-A user passes `--provider` anywhere in the command line and the reader consumes it, returning the provider id and the remainder. Any token list not starting with the provider flag passes through unchanged.
+A user passes `--provider` anywhere among a command's options and the loop collects it as raw strings under the `--provider` tag. The definition itself parses nothing.
 
-**Why this priority**: This is the reader's only job. Without it the provider cannot be set from the command line.
+**Why this priority**: This is the definition's only job. Without it no command can accept a provider from the command line.
 
-**Independent Test**: Call `readProviderArg(["--provider", "faux", "Hi"])` and check `{ provider: "faux", rest: ["Hi"] }`; call `readProviderArg(["--key", "x", "Hi"])` and check the input comes back unchanged with `provider: undefined`.
+**Independent Test**: `scanArgv(["ask", "--provider", "faux", "Hi"], [], [askCmd()], GENERAL)` collects `options["--provider"] == ["faux"]`; the `-p` and `--provider=faux` forms collect the same.
 
 **Acceptance Scenarios**:
 
-1. **Given** tokens `["--provider", "faux", "Hi"]`, **When** the reader processes them, **Then** it returns `provider: "faux"` and `rest: ["Hi"]`.
-2. **Given** tokens `["-p", "faux", "Hi"]`, **When** the reader processes them, **Then** it returns `provider: "faux"` and `rest: ["Hi"]` (short alias works).
-3. **Given** tokens `["--provider=faux", "Hi"]`, **When** the reader processes them, **Then** it returns `provider: "faux"` and `rest: ["Hi"]` (`=` form works).
-4. **Given** tokens `["--key", "x", "Hi"]`, **When** the reader processes them, **Then** it returns `provider: undefined` and the tokens unchanged (not its flag).
+1. **Given** the provider option registered on the command, **When** the user writes `--provider faux`, **Then** the loop stores `["faux"]` under `--provider`.
+2. **Given** the same registration, **When** the user writes `-p faux`, **Then** the same value is stored under the long name `--provider` (short alias works).
+3. **Given** the same registration, **When** the user writes `--provider=faux`, **Then** the same value is stored (`=` form works).
+4. **Given** the provider option NOT registered on a command, **When** the user writes `--provider faux` after that command's word, **Then** the loop fails with `Unknown option: --provider` (plus that command's help, exit 2).
 
 ---
 
@@ -35,47 +35,60 @@ A user writes the flag without a value and gets a clear error naming the option 
 
 **Why this priority**: A silent empty provider id would fail later with a confusing unknown-provider error. Failing at the flag names the real mistake.
 
-**Independent Test**: Call the reader on `["--provider"]`, `["--provider", "--key", "x"]`, and `["--provider="]`; each throws `Missing value for --provider`.
+**Independent Test**: `scanArgv(["ask", "--provider"], ...)`, `scanArgv(["ask", "--provider", "--key", "x"], ...)`, and `scanArgv(["ask", "--provider="], ...)` each throw `Missing value for --provider` with the command's help block, exit 2.
 
 **Acceptance Scenarios**:
 
-1. **Given** tokens `["--provider"]`, **When** the reader processes them, **Then** it throws `Missing value for --provider` (exit 2 at the entry point).
-2. **Given** tokens `["--provider", "--key", "x"]`, **When** the reader processes them, **Then** it throws `Missing value for --provider` (an option is never a value).
-3. **Given** tokens `["--provider="]`, **When** the reader processes them, **Then** it throws `Missing value for --provider` (empty value never accepted).
+1. **Given** `--provider` as the last token, **When** the scan runs, **Then** it throws `Missing value for --provider` (exit 2 at the entry point).
+2. **Given** `--provider` followed by another option, **When** the scan runs, **Then** it throws `Missing value for --provider` (an option is never a value).
+3. **Given** `--provider=` with an empty suffix, **When** the scan runs, **Then** it throws `Missing value for --provider` (empty value never accepted).
+
+---
+
+### User Story 3 - Repetition fails, never last-wins (Priority: P2)
+
+A user writes `--provider` twice and gets `Too many occurrences of --provider` — the loop never silently keeps the last one.
+
+**Why this priority**: `max 1` is a typo catcher. Silent last-wins would hide a duplicated flag.
+
+**Independent Test**: `scanArgv(["ask", "--provider", "a", "--provider", "b", "Hi"], ...)` throws `Too many occurrences of --provider` with the command's help block, exit 2.
+
+**Acceptance Scenarios**:
+
+1. **Given** `min 0, max 1`, **When** the user repeats `--provider`, **Then** the second occurrence throws immediately, exit 2.
 
 ---
 
 ### Edge Cases
 
-- The same flag repeated across passes: last occurrence wins (a later pass overwrites the stored value).
-- The value as written IS the provider id, used as-is. Whether it is known is decided later by the existing unknown-provider check, not by this reader.
-- Detaching this reader (delete file + import + call line + help spread) makes `--provider` / `-p` fall into the argument-processing loop's unknown-option error and removes its help lines.
+- The value as written IS the provider id, used as-is. Whether it is known is decided later by the existing unknown-provider check, not by this definition.
+- Detaching this option (remove the reference from the command's `options` list plus its lines from that command's verbatim `help` block) makes `--provider` / `-p` fall into the loop's unknown-option error and removes its help lines.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: The reader MUST own its option spellings exclusively: `--provider`, `--provider=<v>`, `-p`. No other reader may claim these spellings.
-- **FR-002**: The reader MUST use the lazy strategy: inspect only the leading token. If the first token is `--provider` or `-p`, consume it plus the next token as the value. If the first token starts with `--provider=`, consume it and take the suffix as the value. Otherwise return the input unchanged with `provider: undefined`.
-- **FR-003**: A missing value (flag is the last token, next token starts with `-` or is empty, or `=` form has an empty suffix) MUST throw `Error("Missing value for --provider. ...")` with the same hint suffix as the other readers. An empty value MUST never be accepted.
-- **FR-004**: The reader MUST return a new remainder (input minus the consumed pair, order preserved) and MUST NOT mutate the input.
-- **FR-005**: The reader MUST store the value as-is. Provider-id validity is out of scope (decided later by the existing unknown-provider check).
-- **FR-006**: The reader MUST contribute its own help lines (`providerHelp`), so `ask --help` describes it exactly while attached and drops it when detached.
-- **FR-007**: Per call the reader consumes at most one occurrence. Repetition across passes of the argument-processing loop resolves to last-wins.
+- **FR-001**: The definition MUST be exactly: `{ name: "--provider", alias: "-p", arity: 1, min: 0, max: 1 }`. No other option may claim these spellings.
+- **FR-002**: There is NO reader function. All spelling forms (`--provider v`, `--provider=v`, `-p v`) and all value errors are owned by the loop per 002 (fixed arity, `=` without spaces, missing/empty value rules). This spec adds no scanning behavior.
+- **FR-003**: A missing value (flag is the last token, next token starts with `-` or is empty, or `=` form has an empty suffix) MUST surface as `Missing value for --provider` with the FR-017 help block, exit 2. An empty value MUST never be accepted.
+- **FR-004**: Repetition MUST surface as `Too many occurrences of --provider` with the FR-017 help block, exit 2 (loop FR-009). Silent last-wins is FORBIDDEN for this option.
+- **FR-005**: The value MUST be stored as-is. Provider-id validity is out of scope (decided later by the existing unknown-provider check).
+- **FR-006**: The definition MUST be accompanied by its help fragment (`providerHelp`), which the owning command's verbatim `help` block includes exactly while the option is attached and drops when detached.
+- **FR-007**: Commands MUST reference this definition, never copy it. If a second command needs a different shape (different arity or bounds), that is a different definition, not this one.
 
 ### Key Entities
 
-- **Provider reader** (`src/providerArg.ts`): `readProviderArg(tokens)` → `{ provider?, rest }` plus `providerHelp: string[]`. Self-contained; imports nothing from other readers.
+- **Provider option** (`src/providerArg.ts`): `providerOption: Option` (`--provider` / `-p` / arity 1 / `min 0, max 1`) plus `providerHelp: string[]`. Self-contained; imports only the `Option` type.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: All four User Story 1 scenarios hold (long, short, `=`, foreign flag untouched).
-- **SC-002**: All three User Story 2 scenarios throw the missing-value error.
-- **SC-003**: Reader consumes at most one occurrence per call; repeated flags resolve last-wins across passes.
+- **SC-001**: All four User Story 1 scenarios hold (long, short, `=`, unregistered command rejects).
+- **SC-002**: All three User Story 2 scenarios throw the missing-value error naming `--provider`.
+- **SC-003**: Repeated `--provider` throws the too-many error; last-wins never happens.
 
 ## Assumptions
 
-- Argument-processing loop mechanics (pass order, shrink-to-continue, unknown-option error) live in `002-argument-readers` and are not repeated here.
+- Loop mechanics (single scan, activation, arity, occurrence bounds, unknown-option error, help-with-error) live in `002-argument-readers` and are not repeated here.
 - The value may be any non-empty string; catalog membership is checked downstream.

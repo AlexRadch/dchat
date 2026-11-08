@@ -1,5 +1,17 @@
-// Reads --key / --key=<v> / -k: lazy, first token only.
-// Detach: delete the import, the call block, and the help spread in chat.ts.
+// Key option definition: one shared Option + help fragment.
+// No scanning lives here — the loop in args.ts owns all parsing.
+// Detach: remove the reference from the command's options list and
+// its lines from that command's verbatim help block.
+import type { Option } from "./args.js";
+
+export const keyOption: Option = {
+	name: "--key",
+	alias: "-k",
+	arity: 1,
+	min: 0,
+	max: 1,
+};
+
 export const keyHelp: string[] = [
 	"  --key SPEC       Key, or its source: literal, env:NAME, env,",
 	"                   file:PATH, dotenv:PATH[?VAR=NAME], dotenv[:VAR=NAME],",
@@ -7,25 +19,3 @@ export const keyHelp: string[] = [
 	"                   Without --key: {PROVIDER}_API_KEY from env, ./.env,",
 	"                   ~/.env, OS keychain.",
 ];
-
-export function readKeyArg(tokens: string[]): {
-	key?: string;
-	rest: string[];
-} {
-	const [first, second, ...tail] = tokens;
-	if (first === "--key" || first === "-k") {
-		if (second === undefined || second === "" || second.startsWith("-")) {
-			throw new Error('Missing value for --key. Try "dchat ask --help".');
-		}
-		return { key: second, rest: tail };
-	}
-	if (first !== undefined && first.startsWith("--key=")) {
-		const v = first.slice("--key=".length);
-		if (!v) {
-			throw new Error('Missing value for --key. Try "dchat ask --help".');
-		}
-		const rest = second === undefined ? tail : [second, ...tail];
-		return { key: v, rest };
-	}
-	return { key: undefined, rest: tokens };
-}

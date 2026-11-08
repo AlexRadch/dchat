@@ -54,6 +54,20 @@ A user writes `--help=x` and gets an arity error naming `--help`, followed by th
 
 ---
 
+### User Story 4 - No arguments at all (Priority: P1)
+
+A user runs bare `dchat` with zero tokens and gets the general help block on stderr, exit 2 — same text as `--help`, but on the error channel because nothing was asked.
+
+**Why this priority**: Bare invocation is the most common beginner mistake; it must teach, not go silent, and its non-zero exit keeps scripts from mistaking it for success.
+
+**Independent Test**: `dchat` with `argv = []` → stderr contains the general help block, stdout empty, exit 2.
+
+**Acceptance Scenarios**:
+
+1. **Given** zero command-line tokens, **When** the entry point runs, **Then** it prints the general help block to stderr and exits 2 without invoking the scan or any handler.
+
+---
+
 ### Edge Cases
 
 - `-h` behaves exactly like `--help` in every position.
@@ -75,6 +89,7 @@ A user writes `--help=x` and gets an arity error naming `--help`, followed by th
 - **FR-005**: `dchat --help ask` (help before the command) MUST print general help, NOT command help. Position decides: help answers what is known at its own position.
 - **FR-006**: Help output MUST go to stdout, exit code 0. Help MUST work with zero registered commands.
 - **FR-007**: Help-vs-error order: the scan stops at the FIRST decisive token. Error before `--help` → error + relevant help block on stderr (per 002 FR-017), exit 2/1; `--help` is never reached. `--help` before the error → help on stdout, exit 0; the error is never reached.
+- **FR-008**: Bare invocation (`argv` empty, zero tokens) MUST print the general help block to stderr and exit 2, without invoking the scan or any handler. Same text as `--help`, error channel because nothing was asked.
 
 ### Key Entities
 
@@ -92,6 +107,7 @@ A user writes `--help=x` and gets an arity error naming `--help`, followed by th
 - **SC-004**: `dchat --help ask` prints general help (not command help), exit 0.
 - **SC-005**: `dchat --porvider --help` → error + general help on stderr, exit 2. `dchat --help --porvider` → general help on stdout, exit 0.
 - **SC-006**: `dchat badcmd --help` → unknown-command error + general help on stderr, exit 1. `dchat --help badcmd` → general help on stdout, exit 0.
+- **SC-007**: `dchat` with zero tokens → general help on stderr, stdout empty, exit 2; no handler called.
 
 ## Assumptions
 

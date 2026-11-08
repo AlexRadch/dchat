@@ -6,7 +6,7 @@
 
 ## Summary
 
-Build the single argument-processing loop in `src/chat.ts` fed by two registration lists: global options (`Option[]`) and commands (`Command[]`). Introduce shared `Option`/`Command`/parse-state types in a new `src/args.ts`. Global help (`--help`/`-h`, spec 006) is implemented inline in the loop. The existing `ask` execution path is parked — commented out in place under a marker, NOT deleted — until the `ask` command spec re-enables it. Until then the utility accepts no commands; only global help works.
+Build the single argument-processing loop in `src/chat.ts` fed by two registration lists: global options (`Option[]`) and commands (`Command[]`). Introduce shared `Option`/`Command` types in a new `src/args.ts`. Global help (`--help`/`-h`, spec 006) is implemented inline in the loop. The existing `ask` execution path is parked — commented out in place under a marker, NOT deleted — until the `ask` command spec re-enables it. Until then the utility accepts no commands; only global help works.
 
 ## Technical Context
 
@@ -34,7 +34,7 @@ Build the single argument-processing loop in `src/chat.ts` fed by two registrati
 
 - I. English-Only: all new code, comments, tests, spec artifacts in English. PASS.
 - II. Spec-Driven: spec `002-argument-readers` written first, then amended (single loop, Option/Command types, one-token text, verbatim help); global help split into spec 006; plan + tasks before code; short path (clarify/checklist/analyze skipped — mechanics agreed directly, no open questions). PASS.
-- III. Test-First: `tests/cliArgs.test.ts` single-scan describes cover activation order, last-wins, unknown/extra-text errors, `--`, and help short-circuit; `npm test` + `npm run typecheck` green before review. PASS (planned).
+- III. Test-First: `tests/cliArgs.test.ts` single-scan describes cover activation order, min/max bounds, unknown/extra-text errors, `--`, and help short-circuit; `npm test` + `npm run typecheck` green before review. PASS (planned).
 - IV. Simplicity/CLI: one scan loop + one types file, no new deps/config/processes; ask parked (commented, not deleted); stdout/stderr/exit contract for help unchanged. PASS.
 - V. Secrets: key resolution untouched (`keys.ts` as-is); tests use plain strings, never real keys. PASS.
 
@@ -42,9 +42,8 @@ Build the single argument-processing loop in `src/chat.ts` fed by two registrati
 
 ### Types (`src/args.ts` — new file, this plan)
 
-- `Option = { name: string; alias: string; arity: number }` — one shared shape for global and command options.
+- `Option = { name: string; alias: string; arity: number; min: number; max: number }` — one shared shape for global and command options.
 - `Command = { name: string; options: Option[]; help: string; run: (args: { options: Record<string, string[]>; text?: string }) => ... }` — help is a complete verbatim block, printed as-is.
-- `ParseState = { args: string[]; options: Record<string, string[]>; command?: string }`.
 - Command registrations reference shared `Option` definitions, never copy them.
 
 ### Entry point loop (`src/chat.ts` — this plan)
@@ -53,7 +52,6 @@ Build the single argument-processing loop in `src/chat.ts` fed by two registrati
 - The existing `ask` execution path is parked: commented out in place under a `PARKED (ask)` marker, NOT deleted, until the `ask` command spec re-enables it. Until then the command table holds no enabled commands.
 - Single left-to-right scan (the two registration lists ARE the loop's data):
   ```ts
-  const state: ParseState = { args: argv, options: {}, command: undefined };
   // active options = GLOBAL_OPTIONS; after a command word, command.options
   for each token in order:
     if token is --help/-h → print general or command help (spec 006), exit 0
@@ -66,7 +64,7 @@ Build the single argument-processing loop in `src/chat.ts` fed by two registrati
     else if token starts with `-` → Unknown option error, exit 2
     else → text candidate (a second one → extra-text error naming it, exit 2)
   ```
-  Repetition resolves to last-wins: a later occurrence overwrites `options[tag]`. One scan, no repeat passes.
+  Repetition resolves per `min`/`max`: within bounds values append to `options[tag]` in order; beyond `max` the scan throws immediately; below `min` it throws after the scan. One scan, no repeat passes.
 - Unknown option: the first leftover `-x` token → stderr `Unknown option: <token>` with a hint toward general or `dchat <command> --help`, exit 2. Text rule: exactly one leftover non-option token becomes text; a second one → extra-text error naming it with a quote hint, exit 2.
 - Help (spec 006) is inline in the loop, never in handlers or reader files; `--help` stops the scan immediately.
 - Detaching = removing a line from a registration list (a global option, a command, or one command's option reference) — nothing else. The parked `ask` block stays commented until the ask spec re-enables it.
@@ -94,7 +92,7 @@ specs/006-global-help/
 ```text
 src/
 ├── chat.ts               # entry point: single scan loop + inline help, zero option/command names in logic
-├── args.ts               # NEW: Option / Command / ParseState types + the two registration lists
+├── args.ts               # NEW: Option / Command types + the two registration lists
 ├── providerArg.ts        # owned by 003-provider-arg — on disk, registration parked with ask
 ├── keyArg.ts             # owned by 004-key-arg — on disk, registration parked with ask
 ├── modelArg.ts           # owned by 005-model-arg — on disk, registration parked with ask

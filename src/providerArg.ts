@@ -1,27 +1,17 @@
-// Reads --provider / --provider=<v> / -p: lazy, first token only.
-// Detach: delete the import, the call block, and the help spread in chat.ts.
+// Provider option definition: one shared Option + help fragment.
+// No scanning lives here — the loop in args.ts owns all parsing.
+// Detach: remove the reference from the command's options list and
+// its lines from that command's verbatim help block.
+import type { Option } from "./args.js";
+
+export const providerOption: Option = {
+	name: "--provider",
+	alias: "-p",
+	arity: 1,
+	min: 0,
+	max: 1,
+};
+
 export const providerHelp: string[] = [
 	"  --provider P     Provider id (default: openrouter)",
 ];
-
-export function readProviderArg(tokens: string[]): {
-	provider?: string;
-	rest: string[];
-} {
-	const [first, second, ...tail] = tokens;
-	if (first === "--provider" || first === "-p") {
-		if (second === undefined || second === "" || second.startsWith("-")) {
-			throw new Error('Missing value for --provider. Try "dchat ask --help".');
-		}
-		return { provider: second, rest: tail };
-	}
-	if (first !== undefined && first.startsWith("--provider=")) {
-		const v = first.slice("--provider=".length);
-		if (!v) {
-			throw new Error('Missing value for --provider. Try "dchat ask --help".');
-		}
-		const rest = second === undefined ? tail : [second, ...tail];
-		return { provider: v, rest };
-	}
-	return { provider: undefined, rest: tokens };
-}

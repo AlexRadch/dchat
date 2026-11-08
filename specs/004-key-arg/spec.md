@@ -1,31 +1,31 @@
-# Feature Specification: Key Argument Reader
+# Feature Specification: Key Option Definition
 
 **Feature Branch**: `004-key-arg`
 
 **Created**: 2026-11-07
 
-**Status**: Draft
+**Status**: Draft (rewritten 2026-11-08 — lazy-reader model replaced by a single-scan `Option` definition; no reader function remains)
 
-**Input**: User description: "Lazy first-token reader for the key option: owns --key spellings and help lines, consumes at most one occurrence per pass of the argument-processing loop. Detachable by deleting its file, import, call line, and help spread."
+**Input**: User description: "Key option as one shared `Option` definition: owns `--key` spellings and help lines, referenced (never copied) by every command that accepts it. The loop in 002 owns all scanning; this spec fixes the definition only."
 
-**Parent**: `specs/002-argument-readers/spec.md` (argument-processing loop mechanics: FR-003 lazy strategy allowed, FR-004 argument-processing loop; this spec fixes one reader's spellings and strategy).
+**Parent**: `specs/002-argument-readers/spec.md` (single-scan loop, `Option`/`Command` types, fixed arity, occurrence bounds, loop-owned help; this spec fixes one option's definition).
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Key flag is read lazily (Priority: P1)
+### User Story 1 - Key flag is collected by the loop (Priority: P1)
 
-A user passes `--key` anywhere in the command line and the reader consumes it, returning the key spec and the remainder. Any token list not starting with the key flag passes through unchanged.
+A user passes `--key` anywhere among a command's options and the loop collects it as raw strings under the `--key` tag. The definition itself parses nothing.
 
-**Why this priority**: This is the reader's only job. Without it the key cannot be set from the command line.
+**Why this priority**: This is the definition's only job. Without it no command can accept a key from the command line.
 
-**Independent Test**: Call `readKeyArg(["--key", "sk-or-...", "Hi"])` and check `{ key: "sk-or-...", rest: ["Hi"] }`; call `readKeyArg(["--provider", "faux", "Hi"])` and check the input comes back unchanged with `key: undefined`.
+**Independent Test**: `scanArgv(["ask", "--key", "sk-or-...", "Hi"], [], [askCmd()], GENERAL)` collects `options["--key"] == ["sk-or-..."]`; the `-k` and `--key=env:MY_KEY` forms collect the same.
 
 **Acceptance Scenarios**:
 
-1. **Given** tokens `["--key", "sk-or-...", "Hi"]`, **When** the reader processes them, **Then** it returns `key: "sk-or-..."` and `rest: ["Hi"]`.
-2. **Given** tokens `["-k", "env:MY_KEY", "Hi"]`, **When** the reader processes them, **Then** it returns `key: "env:MY_KEY"` and `rest: ["Hi"]` (short alias works).
-3. **Given** tokens `["--key=env:MY_KEY", "Hi"]`, **When** the reader processes them, **Then** it returns `key: "env:MY_KEY"` and `rest: ["Hi"]` (`=` form works).
-4. **Given** tokens `["--provider", "faux", "Hi"]`, **When** the reader processes them, **Then** it returns `key: undefined` and the tokens unchanged (not its flag).
+1. **Given** the key option registered on the command, **When** the user writes `--key sk-or-...`, **Then** the loop stores `["sk-or-..."]` under `--key`.
+2. **Given** the same registration, **When** the user writes `-k env:MY_KEY`, **Then** the same value is stored under the long name `--key` (short alias works).
+3. **Given** the same registration, **When** the user writes `--key=env:MY_KEY`, **Then** the same value is stored (`=` form works).
+4. **Given** the key option NOT registered on a command, **When** the user writes `--key x` after that command's word, **Then** the loop fails with `Unknown option: --key` (plus that command's help, exit 2).
 
 ---
 
@@ -35,47 +35,60 @@ A user writes the flag without a value and gets a clear error naming the option 
 
 **Why this priority**: A silent empty key would fail later with a confusing key-resolution error. Failing at the flag names the real mistake.
 
-**Independent Test**: Call the reader on `["--key"]`, `["--key", "--model", "m"]`, and `["--key="]`; each throws `Missing value for --key`.
+**Independent Test**: `scanArgv(["ask", "--key"], ...)`, `scanArgv(["ask", "--key", "--model", "m"], ...)`, and `scanArgv(["ask", "--key="], ...)` each throw `Missing value for --key` with the command's help block, exit 2.
 
 **Acceptance Scenarios**:
 
-1. **Given** tokens `["--key"]`, **When** the reader processes them, **Then** it throws `Missing value for --key` (exit 2 at the entry point).
-2. **Given** tokens `["--key", "--model", "m"]`, **When** the reader processes them, **Then** it throws `Missing value for --key` (an option is never a value).
-3. **Given** tokens `["--key="]`, **When** the reader processes them, **Then** it throws `Missing value for --key` (empty value never accepted).
+1. **Given** `--key` as the last token, **When** the scan runs, **Then** it throws `Missing value for --key` (exit 2 at the entry point).
+2. **Given** `--key` followed by another option, **When** the scan runs, **Then** it throws `Missing value for --key` (an option is never a value).
+3. **Given** `--key=` with an empty suffix, **When** the scan runs, **Then** it throws `Missing value for --key` (empty value never accepted).
+
+---
+
+### User Story 3 - Repetition fails, never last-wins (Priority: P2)
+
+A user writes `--key` twice and gets `Too many occurrences of --key` — the loop never silently keeps the last one.
+
+**Why this priority**: `max 1` is a typo catcher. Silent last-wins would hide a duplicated flag.
+
+**Independent Test**: `scanArgv(["ask", "--key", "a", "--key", "b", "Hi"], ...)` throws `Too many occurrences of --key` with the command's help block, exit 2.
+
+**Acceptance Scenarios**:
+
+1. **Given** `min 0, max 1`, **When** the user repeats `--key`, **Then** the second occurrence throws immediately, exit 2.
 
 ---
 
 ### Edge Cases
 
-- The same flag repeated across passes: last occurrence wins (a later pass overwrites the stored value).
-- The value as written IS the key spec (literal, `env:`, `file:`, `dotenv:`, `keychain:` forms), used as-is. How it resolves is decided later by the existing key resolution, not by this reader.
-- Detaching this reader (delete file + import + call line + help spread) makes `--key` / `-k` fall into the argument-processing loop's unknown-option error and removes its help lines.
+- The value as written IS the key spec (literal, `env:`, `file:`, `dotenv:`, `keychain:` forms), used as-is. How it resolves is decided later by the existing key resolution, not by this definition.
+- Detaching this option (remove the reference from the command's `options` list plus its lines from that command's verbatim `help` block) makes `--key` / `-k` fall into the loop's unknown-option error and removes its help lines.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: The reader MUST own its option spellings exclusively: `--key`, `--key=<v>`, `-k`. No other reader may claim these spellings.
-- **FR-002**: The reader MUST use the lazy strategy: inspect only the leading token. If the first token is `--key` or `-k`, consume it plus the next token as the value. If the first token starts with `--key=`, consume it and take the suffix as the value. Otherwise return the input unchanged with `key: undefined`.
-- **FR-003**: A missing value (flag is the last token, next token starts with `-` or is empty, or `=` form has an empty suffix) MUST throw `Error("Missing value for --key. ...")` with the same hint suffix as the other readers. An empty value MUST never be accepted.
-- **FR-004**: The reader MUST return a new remainder (input minus the consumed pair, order preserved) and MUST NOT mutate the input.
-- **FR-005**: The reader MUST store the value as-is. Key-spec interpretation is out of scope (decided later by the existing key resolution).
-- **FR-006**: The reader MUST contribute its own help lines (`keyHelp`), so `ask --help` describes it exactly while attached and drops it when detached.
-- **FR-007**: Per call the reader consumes at most one occurrence. Repetition across passes of the argument-processing loop resolves to last-wins.
+- **FR-001**: The definition MUST be exactly: `{ name: "--key", alias: "-k", arity: 1, min: 0, max: 1 }`. No other option may claim these spellings.
+- **FR-002**: There is NO reader function. All spelling forms (`--key v`, `--key=v`, `-k v`) and all value errors are owned by the loop per 002 (fixed arity, `=` without spaces, missing/empty value rules). This spec adds no scanning behavior.
+- **FR-003**: A missing value (flag is the last token, next token starts with `-` or is empty, or `=` form has an empty suffix) MUST surface as `Missing value for --key` with the FR-017 help block, exit 2. An empty value MUST never be accepted.
+- **FR-004**: Repetition MUST surface as `Too many occurrences of --key` with the FR-017 help block, exit 2 (loop FR-009). Silent last-wins is FORBIDDEN for this option.
+- **FR-005**: The value MUST be stored as-is. Key-spec interpretation is out of scope (decided later by the existing key resolution).
+- **FR-006**: The definition MUST be accompanied by its help fragment (`keyHelp`), which the owning command's verbatim `help` block includes exactly while the option is attached and drops when detached.
+- **FR-007**: Commands MUST reference this definition, never copy it. If a second command needs a different shape (different arity or bounds), that is a different definition, not this one.
 
 ### Key Entities
 
-- **Key reader** (`src/keyArg.ts`): `readKeyArg(tokens)` → `{ key?, rest }` plus `keyHelp: string[]`. Self-contained; imports nothing from other readers.
+- **Key option** (`src/keyArg.ts`): `keyOption: Option` (`--key` / `-k` / arity 1 / `min 0, max 1`) plus `keyHelp: string[]`. Self-contained; imports only the `Option` type.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: All four User Story 1 scenarios hold (long, short, `=`, foreign flag untouched).
-- **SC-002**: All three User Story 2 scenarios throw the missing-value error.
-- **SC-003**: Reader consumes at most one occurrence per call; repeated flags resolve last-wins across passes.
+- **SC-001**: All four User Story 1 scenarios hold (long, short, `=`, unregistered command rejects).
+- **SC-002**: All three User Story 2 scenarios throw the missing-value error naming `--key`.
+- **SC-003**: Repeated `--key` throws the too-many error; last-wins never happens.
 
 ## Assumptions
 
-- Argument-processing loop mechanics (pass order, shrink-to-continue, unknown-option error) live in `002-argument-readers` and are not repeated here.
+- Loop mechanics (single scan, activation, arity, occurrence bounds, unknown-option error, help-with-error) live in `002-argument-readers` and are not repeated here.
 - The value may be any non-empty string; its meaning is resolved downstream.

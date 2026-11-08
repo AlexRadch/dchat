@@ -1,17 +1,14 @@
-# Implementation Plan: Model Argument Reader
+# Implementation Plan: Model Option Definition
 
-**Branch**: `005-model-arg` | **Date**: 2026-11-07 | **Spec**: [spec.md](./spec.md)
+**Branch**: `005-model-arg` | **Date**: 2026-11-07 (rewritten 2026-11-08) | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `/specs/005-model-arg/spec.md`
 
-**Parent**: `specs/002-argument-readers/spec.md` (argument-processing loop mechanics; this plan builds only the model reader).
+**Parent**: `specs/002-argument-readers/spec.md` (single-scan loop; this plan builds only the model option definition).
 
 ## Summary
 
-Rewrite `src/modelArg.ts` as a lazy first-token reader, mirroring 003 with
-model spellings. Inspect only the leading token, consume at most one `--model`
-occurrence per call, return everything else unchanged. Detach = delete file +
-import + call block + help spread.
+Replace `src/modelArg.ts` contents with one shared `Option` definition plus its help fragment, mirroring 003 with model spellings. No scanning lives here — the loop in `args.ts` (002) owns all parsing. Detach = remove the reference from the command's `options` list plus its lines from that command's verbatim help block.
 
 ## Technical Context
 
@@ -19,13 +16,11 @@ Same stack as 002. No new deps. One file: `src/modelArg.ts`.
 
 ## Constitution Check
 
-- I. English-Only: PASS. II. Spec-Driven: spec 005 first, short path. PASS. III. Test-First: per-reader describes in `tests/cliArgs.test.ts` green. PASS (planned). IV. Simplicity: ~20 lines replacing ~20 lines. PASS. V. Secrets: plain strings only. PASS.
+- I. English-Only: PASS. II. Spec-Driven: spec 005 first, short path. PASS. III. Test-First: single-scan describes in `tests/cliArgs.test.ts` cover the definition via the loop. PASS (planned). IV. Simplicity: ~15 lines replacing ~27 lines. PASS. V. Secrets: plain strings only. PASS.
 
 ## Design (`src/modelArg.ts`)
 
-Same shape as the provider reader (003), with `--model` / `--model=<v>` / `-m`
-spellings and `Missing value for --model` errors. `modelHelp` lines unchanged
-(owned here). Value stored as-is; catalog membership checked downstream.
+Same shape as the provider definition (003), with `--model` / `-m` / arity 1 / `min 0, max 1` spellings and `Missing value for --model` errors owned by the loop. `modelHelp` lines unchanged (owned here). Value stored as-is; catalog membership checked downstream.
 
 ## Project Structure
 
@@ -35,8 +30,8 @@ specs/005-model-arg/
 ├── plan.md               # This file
 └── tasks.md              # Short task list (tests + rewrite)
 
-src/modelArg.ts           # rewritten lazy (this plan)
-tests/cliArgs.test.ts     # "model reader" describe rewritten lazy (this plan)
+src/modelArg.ts           # option definition (this plan)
+tests/cliArgs.test.ts     # single-scan loop describes (002, shared)
 ```
 
 ## Complexity Tracking
