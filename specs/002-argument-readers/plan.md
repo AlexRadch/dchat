@@ -1,21 +1,12 @@
-# Implementation Plan: Argument Readers — Argument-Processing Loop
+# Implementation Plan: Argument Readers — Single Loop, Types, Parked Ask
 
-**Branch**: `002-argument-readers` | **Date**: 2026-11-07 | **Spec**: [spec.md](./spec.md)
+**Branch**: `002-argument-readers` | **Date**: 2026-11-07 | **Spec**: [spec.md](./spec.md) + [006-global-help](../006-global-help/spec.md)
 
-**Input**: Feature specification from `/specs/002-argument-readers/spec.md`
+**Input**: Feature specification from `/specs/002-argument-readers/spec.md` (amended: single loop, Option/Command types, help owned by loop)
 
 ## Summary
 
-Replace the hand-rolled option loop in `src/chat.ts` with a argument-processing loop over
-self-contained reader files. One pass hands the current token list to every
-registered reader in order ("process"); each reader returns what it did not
-consume. The loop runs another pass while the remainder shrinks and stops when
-a full pass consumes nothing or the remainder is empty. Any leftover token that
-looks like an option is an unknown-option error (exit 2). Reader spellings,
-strategies, and help lines are NOT here — each reader's own spec (003, 004,
-005, ...) fixes them. Detaching a reader = deleting its import, its call block,
-and its help spread in `chat.ts`. Behavior with the three standard readers
-attached is identical to today.
+Build the single argument-processing loop in `src/chat.ts` fed by two registration lists: global options (`Option[]`) and commands (`Command[]`). Introduce shared `Option`/`Command`/parse-state types in a new `src/args.ts`. Global help (`--help`/`-h`, spec 006) is implemented inline in the loop. The existing `ask` execution path is parked — commented out in place under a marker, NOT deleted — until the `ask` command spec re-enables it. Until then the utility accepts no commands; only global help works.
 
 ## Technical Context
 
@@ -31,78 +22,59 @@ attached is identical to today.
 
 **Project Type**: cli
 
-**Performance Goals**: N/A (a few linear passes over a short argv; passes are bounded by token count)
+**Performance Goals**: N/A (one linear scan over a short argv).
 
-**Constraints**: ADR-002 — no IoC container; composition via plain function calls in the entry point. Exit codes stay 0/1/2. Constitution V — no key-handling changes; `keys.ts` untouched.
+**Constraints**: ADR-002 — no IoC container; composition via plain function calls in the entry point. Exit codes stay 0/1/2. Constitution V — no key-handling changes; `keys.ts` untouched. Parked code is commented, never deleted.
 
-**Scale/Scope**: `src/chat.ts` argument-processing-loop rewrite (this plan). Reader files owned by their own specs: `src/providerArg.ts` (003), `src/keyArg.ts` (004), `src/modelArg.ts` (005). No new deps, no config files.
+**Scale/Scope**: `src/chat.ts` loop rewrite + new `src/args.ts` (this plan) + inline global help (spec 006). Reader files owned by their own specs: `src/providerArg.ts` (003), `src/keyArg.ts` (004), `src/modelArg.ts` (005) — stay on disk, registration commented out with the parked ask block. No new deps, no config files.
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 - I. English-Only: all new code, comments, tests, spec artifacts in English. PASS.
-- II. Spec-Driven: spec `002-argument-readers` written first and amended to the argument-processing loop; plan + tasks before code; short path (clarify/checklist/analyze skipped — mechanics agreed directly, no open questions). PASS.
-- III. Test-First: `tests/cliArgs.test.ts` "argument-processing loop" describes cover pass order, shrink-to-continue, stop-on-stall, and last-wins; `npm test` + `npm run typecheck` green before review. PASS (planned).
-- IV. Simplicity/CLI: argument-processing loop is ~15 lines, no new deps/config/processes, no shared abstraction; stdout/stderr/exit contract unchanged with all readers attached. PASS.
+- II. Spec-Driven: spec `002-argument-readers` written first, then amended (single loop, Option/Command types, one-token text, verbatim help); global help split into spec 006; plan + tasks before code; short path (clarify/checklist/analyze skipped — mechanics agreed directly, no open questions). PASS.
+- III. Test-First: `tests/cliArgs.test.ts` single-scan describes cover activation order, last-wins, unknown/extra-text errors, `--`, and help short-circuit; `npm test` + `npm run typecheck` green before review. PASS (planned).
+- IV. Simplicity/CLI: one scan loop + one types file, no new deps/config/processes; ask parked (commented, not deleted); stdout/stderr/exit contract for help unchanged. PASS.
 - V. Secrets: key resolution untouched (`keys.ts` as-is); tests use plain strings, never real keys. PASS.
 
 ## Design
 
-### Entry point argument-processing loop (`src/chat.ts` — this plan)
+### Types (`src/args.ts` — new file, this plan)
 
-- Imports the three readers and their three help fragments. No option string
-  remains in parsing logic (verified by grep in T021; fixed usage header,
-  examples, and comments may still name options as text).
-- `--help` / `-h` short-circuit stays before parsing (unchanged).
-- Argument-processing loop (the registration list IS these call blocks, in order):
+- `Option = { name: string; alias: string; arity: number }` — one shared shape for global and command options.
+- `Command = { name: string; options: Option[]; help: string; run: (args: { options: Record<string, string[]>; text?: string }) => ... }` — help is a complete verbatim block, printed as-is.
+- `ParseState = { args: string[]; options: Record<string, string[]>; command?: string }`.
+- Command registrations reference shared `Option` definitions, never copy them.
+
+### Entry point loop (`src/chat.ts` — this plan)
+
+- The loop is fed two lists: global `Option[]` and `Command[]`. No option or command string remains in loop logic.
+- The existing `ask` execution path is parked: commented out in place under a `PARKED (ask)` marker, NOT deleted, until the `ask` command spec re-enables it. Until then the command table holds no enabled commands.
+- Single left-to-right scan (the two registration lists ARE the loop's data):
   ```ts
-  let rest = argv.slice(1);
-  let provider: string | undefined;
-  let key: string | undefined;
-  let model: string | undefined;
-  try {
-    for (;;) {
-      const n = rest.length;
-      if (n === 0) break;
-      const p = readProviderArg(rest);
-      if (p.provider !== undefined) provider = p.provider;
-      const k = readKeyArg(p.rest);
-      if (k.key !== undefined) key = k.key;
-      const m = readModelArg(k.rest);
-      if (m.model !== undefined) model = m.model;
-      rest = m.rest;
-      if (rest.length === n) break; // nobody consumed anything — stop
-    }
-    provider ??= DEFAULT_PROVIDER;
-  } catch (e) {
-    // Missing value throw from any reader → stderr + exit 2 (same text as today).
-  }
+  const state: ParseState = { args: argv, options: {}, command: undefined };
+  // active options = GLOBAL_OPTIONS; after a command word, command.options
+  for each token in order:
+    if token is --help/-h → print general or command help (spec 006), exit 0
+    else if token matches an active option → consume exactly arity values
+      (missing/empty/option-like next → Missing value error, exit 2;
+      arity 0 with =value → error, exit 2), append raw strings to options[tag]
+    else if token is a known command word and none seen → command = token,
+      switch the active set to its options
+    else if token is `--` → every token after it is text
+    else if token starts with `-` → Unknown option error, exit 2
+    else → text candidate (a second one → extra-text error naming it, exit 2)
   ```
-  Termination is structural: every pass either shrinks the list or stops the
-  loop, so passes are bounded by token count. Repetition resolves to
-  last-wins: a later pass overwrites the stored value. `model !== undefined`
-  replaces the old `modelGiven` flag (same meaning: explicit `--model` was
-  passed).
-- Remainder check, inline (one line, no helper):
-  ```ts
-  const unknown = rest.find((t) => t.startsWith("-"));
-  ```
-  If found → stderr `Unknown option: <token>. Try "dchat ask --help".`, exit 2.
-  Remaining tokens joined with single spaces are the question text (unchanged).
-- Provider default applies after parsing: `provider ?? DEFAULT_PROVIDER`
-  (`DEFAULT_PROVIDER` stays in `chat.ts` — composition policy, not parsing).
-- Help text = fixed header + `providerHelp` + `keyHelp` + `modelHelp` spreads +
-  fixed examples/footer, so help always mirrors the attached readers (FR-007).
-- A comment above the loop documents the detach procedure: delete the import,
-  the call block, and the help spread — nothing else.
+  Repetition resolves to last-wins: a later occurrence overwrites `options[tag]`. One scan, no repeat passes.
+- Unknown option: the first leftover `-x` token → stderr `Unknown option: <token>` with a hint toward general or `dchat <command> --help`, exit 2. Text rule: exactly one leftover non-option token becomes text; a second one → extra-text error naming it with a quote hint, exit 2.
+- Help (spec 006) is inline in the loop, never in handlers or reader files; `--help` stops the scan immediately.
+- Detaching = removing a line from a registration list (a global option, a command, or one command's option reference) — nothing else. The parked `ask` block stays commented until the ask spec re-enables it.
+- No defaults in the loop: missing values are filled by the handler after dispatch (`ask` will default the provider; another command may fail).
 
-### What stays untouched
+### What stays parked (commented, not deleted)
 
-`keys.ts`, `standardProviders.ts`, `fauxProvider.ts`, command routing,
-unknown-provider check, key resolution, harness flow, exit-code contract.
-Reader files (`providerArg.ts`, `keyArg.ts`, `modelArg.ts`) are owned by specs
-003/004/005 — this plan only calls them.
+The whole `ask` execution path: ask routing, the provider/key/model registration lines, defaulting, key resolution, harness flow. Parked code stays in `chat.ts` under a `PARKED (ask)` marker so the ask spec can re-enable it without rewriting. `keys.ts`, `standardProviders.ts`, `fauxProvider.ts` untouched. Reader files (`providerArg.ts`, `keyArg.ts`, `modelArg.ts`) stay on disk untouched; only their registration is commented out.
 
 ## Project Structure
 
@@ -110,32 +82,36 @@ Reader files (`providerArg.ts`, `keyArg.ts`, `modelArg.ts`) are owned by specs
 
 ```text
 specs/002-argument-readers/
-├── spec.md               # Argument-processing loop mechanics (this plan's source of truth)
+├── spec.md               # Single-loop mechanics, Option/Command types (source of truth)
 ├── plan.md               # This file
 └── tasks.md              # Ordered implementation steps
+specs/006-global-help/
+└── spec.md               # Global --help/-h owned by the loop (implemented here)
 ```
 
 ### Source Code (repository root)
 
 ```text
 src/
-├── chat.ts               # entry point: argument-processing loop + inline remainder check, zero option names in logic
-├── providerArg.ts        # owned by 003-provider-arg (lazy first-token read)
-├── keyArg.ts             # owned by 004-key-arg (lazy first-token read)
-├── modelArg.ts           # owned by 005-model-arg (lazy first-token read)
+├── chat.ts               # entry point: single scan loop + inline help, zero option/command names in logic
+├── args.ts               # NEW: Option / Command / ParseState types + the two registration lists
+├── providerArg.ts        # owned by 003-provider-arg — on disk, registration parked with ask
+├── keyArg.ts             # owned by 004-key-arg — on disk, registration parked with ask
+├── modelArg.ts           # owned by 005-model-arg — on disk, registration parked with ask
 ├── keys.ts               # unchanged
 ├── standardProviders.ts  # unchanged
 └── fauxProvider.ts       # unchanged
 
 tests/
-├── cliArgs.test.ts       # "argument-processing loop" describes here; per-reader describes in 003/004/005
+├── cliArgs.test.ts       # single-scan describes here; per-reader describes in 003/004/005
 ├── keys.test.ts          # unchanged
 └── providers.test.ts     # unchanged
 ```
 
 **Structure Decision**: Single-project CLI layout, unchanged. The entry point's
-loop IS the registration list; reader files stay self-contained and import-free
-so each detaches by deleting it alone. No shared parsing module.
+two registration lists ARE the loop's data; reader files stay self-contained
+so each detaches by removing one reference line. One shared types module
+(`args.ts`) — no other shared parsing module.
 
 ## Complexity Tracking
 

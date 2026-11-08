@@ -1,18 +1,20 @@
-# Tasks: Argument Readers — Argument-Processing Loop
+# Tasks: Argument Readers — Single Loop, Types, Parked Ask
 
-**Input**: Design documents from `/specs/002-argument-readers/` (`spec.md`, `plan.md`)
+**Input**: Design documents from `/specs/002-argument-readers/` (`spec.md`, `plan.md`) + `/specs/006-global-help/spec.md`
 
-**Prerequisites**: plan.md (required), spec.md (required)
+**Prerequisites**: plan.md (required), spec.md (required), 006 spec (required for T003)
 
-**Tests**: Constitution III requires covering tests for the argument-processing loop in `tests/cliArgs.test.ts`; `npm test` and `npm run typecheck` green before review. Per-reader describes are owned by 003/004/005 — this task list only covers the loop.
+**Tests**: Constitution III — `tests/cliArgs.test.ts` covers the single scan; `npm test` + `npm run typecheck` green before review. Reader files 003/004/005 stay on disk but unregistered (their own describes keep passing untouched).
 
-## Phase 1: Argument-processing loop in `src/chat.ts`
+## Phase 1: Loop + types + help, ask parked
 
-- [ ] T001 Rewrite the parsing section of `src/chat.ts` as the argument-processing loop from plan.md (passes over the three readers, shrink-to-continue, stop-on-stall, inline remainder check). Keep help short-circuit, defaults, harness flow. Add the detach comment above the loop.
-- [ ] T002 "Argument-processing loop" describes in `tests/cliArgs.test.ts`: pass order threads the remainder (each reader gets the previous rest); a full pass with no consumption stops the loop; empty remainder stops; repetition across passes is last-wins; unknown `-x` leftover is named by the inline rule; pure positional text is untouched. (Per-reader lazy behavior is tested in 003/004/005, not here — stub the readers if needed to isolate the loop.)
-- [ ] T003 Verify: `npm test` + `npm run typecheck` green; live `dchat ask --provider faux "Hi"` → `echo: Hi` exit 0; `--porvider` → `Unknown option` exit 2; bare `--provider` → `Missing value` exit 2; `dchat ask --help` unchanged.
+- [ ] T001 Add `src/args.ts`: `Option` (`{ name, alias, arity }`), `Command` (`{ name, options, help, run }`), `ParseState` (`{ args, options: Record<string, string[]>, command? }`). Empty registrations: `GLOBAL_OPTIONS = []` (help per 006 is inline, not listed), `COMMANDS = []` (ask parked).
+- [ ] T002 Park ask in `src/chat.ts`: comment out the ask routing block, the provider/key/model registration + loop, and the ask execution path under one `PARKED (ask — re-enable with the ask command spec)` marker. Do NOT delete. Bare `dchat` keeps today's general-help exit 2; any command word now falls into unknown-command (exit 1) until its spec lands.
+- [ ] T003 Implement 006 inline in `src/chat.ts`: `--help`/`-h` at any scan position prints general help (no command yet) or the command's verbatim `help` block and exits 0 without calling any handler; `--help=<v>` is an error (exit 2).
+- [ ] T004 Rewrite the loop describes in `tests/cliArgs.test.ts` for the single scan: global-then-command activation; options in any order around the one text token; last-wins; unknown `-x` named; second text token fails naming it with a quote hint; `--` passes text through; values collected as `string[]` (`[]` for arity 0); help short-circuit in both positions.
+- [ ] T005 Verify: `npm test` + `npm run typecheck` green; live `dchat --help` → general help exit 0; `dchat ask "Hi"` → unknown-command exit 1 (parked, expected); `dchat --help=x` → error exit 2.
 
 ## Phase 2: Consistency
 
-- [ ] T004 `grep` option spellings in parsing logic of `src/chat.ts` — zero hits (fixed header/examples/comments may still name them as text, per plan).
-- [ ] T005 Update `specs/README.md` if the loop surface changed (registration = call blocks, detach = delete block).
+- [ ] T006 `grep` loop logic in `src/chat.ts`: zero option/command spellings outside the registration lists and verbatim help text.
+- [ ] T007 Update `specs/README.md` (002 row rewritten, 006 row added).

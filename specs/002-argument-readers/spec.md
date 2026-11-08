@@ -1,10 +1,10 @@
-# Feature Specification: Argument Readers with Remainder Chain
+# Feature Specification: Argument Readers with Two-Phase Dispatch
 
 **Feature Branch**: `002-argument-readers`
 
 **Created**: 2026-11-07
 
-**Status**: Amended 2026-11-07 — argument-processing loop + free strategies (see FR-003–FR-004).
+**Status**: Amended 2026-11-07 — two-phase dispatch: global readers + command handlers, fixed arity, free option/text order (see FR-010–FR-016).
 
 **Input**: User description: "Parse the command line in small detachable pieces. Each piece reads its own options and returns the unread remainder. After all pieces run, anything unread that looks like an option is an error. Removing a piece removes its options from the accepted set."
 
@@ -12,7 +12,7 @@
 
 ### User Story 1 - Ask with known options still works (Priority: P1)
 
-A user runs `dchat ask` with the usual options (`--provider`, `--key`, `--model`) and gets the same behavior as before: the question is answered, help is unchanged, exit codes are unchanged.
+A user runs `dchat ask` with the usual options (`--provider`, `--key`, `--model`) and a single text token. The question is answered, help is unchanged, exit codes are unchanged.
 
 **Why this priority**: This is the existing product surface. The parsing refactor must not change what the user sees.
 
@@ -54,45 +54,77 @@ A user mistypes an option (`--porvider`) and gets a clear error naming the offen
 
 ---
 
+### User Story 4 - Command owns its tail (Priority: P1)
+
+A user runs a second command (e.g. `chat`) whose option set differs from `ask` (extra `--name`, no `--provider` for a `config`-like command). Each command accepts only its own options; a foreign option fails as unknown for that command.
+
+**Why this priority**: This is why two-phase dispatch exists — one global parser cannot know per-command shapes.
+
+**Independent Test**: Register `ask` (provider/key/model) and a stub `chat` (provider/key/model + name). `dchat chat --name c "Hi"` works; `dchat ask --name c "Hi"` fails as unknown option for `ask`.
+
+**Acceptance Scenarios**:
+
+1. **Given** command `ask` does not own `--name`, **When** the user runs `dchat ask --name c "Hi"`, **Then** the program reports `Unknown option: --name` with a hint toward `dchat ask --help`.
+2. **Given** command `config` does not own `--provider`, **When** the user runs `dchat config --provider faux`, **Then** the program reports an unknown option even though `ask` accepts it.
+
+---
+
 ### Edge Cases
 
 - An option that needs a value is given none (`--provider` at the end, or followed by another option, or `--provider=` with an empty value): usage error naming the option (`Missing value for --provider`), not an empty value silently accepted.
 - The same option repeated: the last occurrence wins.
-- `--help` / `-h` after `ask` short-circuits to help; option parsing does not run.
+- `--help` / `-h` before any command shows general help (command list); `--help` / `-h` after a command short-circuits to that command's help; option parsing does not run in either case. `dchat --help ask` (help flag with a positional) is NOT a supported form.
 - A detached reader's short alias goes away together with its long form (e.g. removing the provider reader removes both `--provider` and `-p`).
-- Positional words (the question text) are never claimed by option readers and never reported as unknown options.
+- Positional words (the question text) are never claimed by option readers and never reported as unknown options. Command text is exactly one token — `ask "Hi there"` and `ask Hi` are valid; `ask Hi there` (two leftover tokens) MUST fail naming `there` with a quote hint.
+- `dchat --provider faux ask "Hi"` (shared option before the command) is accepted only while that option keeps the same fixed arity in every command; otherwise it is valid only after the command.
+- A lone `--` ends option processing: every token after it is text, even one starting with `-`.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: The command line after `ask` MUST be parsed only by registered argument readers. The entry point names no option itself; it holds the registration list and runs the argument-processing loop.
-- **FR-002**: Each argument reader owns its option spellings. This spec fixes no spellings — each reader's spec (003, 004, 005, ...) owns its long form, `=` form, and short alias. No two readers may claim the same spelling.
-- **FR-003**: Each argument reader is a pure step over a token list: the entry point hands it the current token list with a single command — "process". The reader consumes only its own options (flag together with value) and returns the unconsumed remainder plus its parsed value. Readers MUST NOT mutate shared state. The reader never reports whether the tokens are its own — it simply returns everything it did not consume, unchanged. Each reader's own spec fixes its strategy (lazy first-token check, greedy full scan, linked-group consumption). The entry point MUST NOT know or assume which strategy a reader uses.
-- **FR-004**: The entry point MUST run a argument-processing loop: one pass hands the current token list to every registered reader in order, each receiving the previous reader's remainder. The entry point MUST NOT ask readers which options they know and MUST NOT name any option itself. After each full pass the entry point compares sizes: if the list shrank, at least one reader consumed something and the loop runs another pass; if the list is unchanged, nobody claimed anything and the loop stops. An empty remainder stops the loop. After the loop, the entry point MUST inspect the final remainder (FR-005).
-- **FR-005**: Any token left in the final remainder that looks like an option (starts with `-`) MUST be reported as `Unknown option: <token>` with a hint toward `dchat ask --help`, exit code 2. Leftover non-option tokens are the question text, never an error.
-- **FR-006**: Detaching a reader (removing it from the registration list) MUST remove its options from the accepted set: its former spellings fall into the FR-005 unknown-option error, and its help lines disappear from `ask --help`.
-- **FR-007**: Each argument reader MUST contribute its own help fragment, so `ask --help` always describes exactly the registered readers.
-- **FR-008**: An option requiring a value with no value present (end of tokens, next token is another option, or empty `=` value) MUST fail as `Missing value for <option>`, exit code 2. An empty value MUST never be accepted as a real value. Each reader's own spec names its option in the message.
-- **FR-009**: All existing CLI behavior MUST stay unchanged while the standard readers are registered: commands, flags, help text, stdout/stderr contract, and exit codes (0 answer, 2 usage/config, 1 unanswered).
+- **FR-001**: The command line MUST be parsed by a single argument-processing loop in the entry point. The loop is fed three lists at once: global options, command words, and each command's own options. No parsing lives inside command handlers — a handler receives the finished parse state (options + text) and only validates and executes.
+- **FR-002**: Each argument reader owns its option spellings: one long form, its `=` form, and exactly one short alias (e.g. `--provider` / `--provider=<v>` / `-p`). A second short alias is NOT allowed for now. Commands have NO aliases for now (`ask` is only `ask`). Within the currently active reader set, no two readers may claim the same spelling. This spec fixes no spellings — each reader's spec (003, 004, 005, ...) owns its own triple. One reader definition is written once and MAY be registered under several commands (e.g. the same provider reader in both `ask` and `chat`); command registrations reference it, never copy its spellings or arity.
+- **FR-003**: Every option MUST declare a fixed arity: the exact number of values it consumes — 0 (flag, e.g. `--help`), 1 (e.g. `--provider P`), or N. Variable arity ("0 or 1", "1 or 2") is FORBIDDEN. An option with an optional value in the GNU sense is forbidden in dchat; the wanted behavior MUST be split into a zero-arity flag plus a separate fixed-arity option, or into a fixed-arity option with an explicit default word (e.g. `--color auto`). Every option MUST also declare occurrence bounds: `min` (0 or more) and `max` (a number or unbounded, written `Infinity` in code). `max` MUST be ≥ `min`. Examples: `--provider` is `min 0, max 1`; `--attach` is `min 0, max Infinity`; a required command flag is `min 1, max 1`.
+- **FR-004**: Within one parse, one spelling MUST keep one arity everywhere it is accepted. An option name with different arities in different commands MUST NOT appear before the command word; it is valid only after the command, inside the handler that owns it.
+- **FR-005**: Readers MUST NOT interpret values. On the single command "process" a reader takes the token list, consumes only its own options (flag plus exactly its arity count of values) and returns the unconsumed remainder plus the raw strings exactly as typed, always as an array: arity 0 → `[]` (presence only), arity 1 → `[string]`, arity N → `[string × N]` in order. No number/enum/path conversion, no validation. Readers MUST NOT mutate shared state and MUST NOT decide validity (unknown provider ids, bad numbers, missing required options are decided later by the command handler, which converts strings to its own types and reports its own type errors).
+- **FR-006**: Collected options are passed to the command handler as `options: Record<string, string[]>` — tag → raw `string[]` values only (arity 0 stores `[]`, arity 1 stores one element, arity N stores N elements). The command word itself consumes exactly one token and is always a plain string. The handler converts strings to its own types and reports its own type errors. (Internal loop bookkeeping — how the scan threads `arguments`/`command` through its own locals — is an implementation detail and is NOT part of this spec.)
+- **FR-007**: The entry point loop makes a single left-to-right scan over the whole command line. Global readers (`--help`/`-h`, arity 0, plus any shared option explicitly registered as global with a uniform arity) are active from the first token. Command words are recognized wherever they appear: the first non-option token that names a known command becomes the command word (`command`). There is exactly one command word. A second command word is an error (unknown command), not a second command. Option readers of a command become active only after its word; options of a command that was not named stay inactive and their spellings fall into the unknown-option error.
+- **FR-008**: Once the loop finishes, the entry point MUST call exactly one command handler — a single function per command (`handleAsk`, `handleChat`, ...) — passing it the finished parse state (collected options plus the single text token). The handler does NO parsing and NEVER sees a help request: if `--help`/`-h` appeared anywhere, the loop already printed help and stopped before the call. File layout (one file per command vs. shared file) is an implementation detail; one command = one handler function is the contract.
+- **FR-009**: Occurrence bounds are enforced by the loop, never by handlers. Each occurrence appends its `string[]` values to `options[tag]` in order. Exceeding `max` MUST fail immediately as `Too many occurrences of <option>.` on stderr with the FR-017 help block, exit code 2. After the scan, any active option with fewer than `min` occurrences MUST fail as `Missing required option: <option>.` on stderr with the FR-017 help block, exit code 2. Non-repeatable (`max 1`) options MUST NOT silently last-win: a second occurrence is the too-many error.
+- **FR-010**: A command handler MUST accept its options in any order relative to the text. `dchat ask --provider faux "Hi"`, `dchat ask "Hi" --provider faux`, and `dchat ask --provider faux "Hi" --model m` are all valid and equivalent. Options consume exactly their arity; whatever no reader claims and does not start with `-` is text.
+- **FR-010**: Command text is defined as exactly one leftover non-option token. Shell quoting is resolved by the shell before dchat runs, so `ask "Hi there"` arrives as one token and `ask Hi` arrives as one token; both are valid. Two or more leftover non-option tokens MUST fail as extra text (exit code 2), e.g. `ask -p p Hi there` fails naming `there` with a quote hint. Quoting is needed only to protect spaces/specials from the shell; dchat itself never sees the quotes.
+- **FR-011**: Any token that looks like an option (starts with `-`, except the `--` delimiter itself) but is claimed by no active reader MUST be reported as `Unknown option: <token>` on stderr, followed on stderr by the relevant help block — FR-017. Exit code 2.
+- **FR-012**: A bare `--` token ends option processing: it is consumed itself and every token after it is text unconditionally, even one starting with `-`.
+- **FR-013**: Detaching a reader (removing it from the registration list) MUST remove its options from the accepted set: its former spellings fall into the FR-011 unknown-option error, and its help lines disappear from the help output.
+- **FR-014**: Help is owned by the entry-point loop, never by handlers. Each command registers its complete ready-to-print help block together with its options at registration time. The block is printed verbatim — the loop MUST NOT compose help lines from option definitions, so blocks may use any language or layout. `--help`/`-h` with no command yet prints general help (global flags plus command names) to stdout. `--help`/`-h` once a command word is known prints that command's block to stdout. In either case the loop stops immediately: the handler is NOT called. Exit code 0. Each argument reader MUST still contribute its own help fragment so the blocks stay exact.
+- **FR-015**: An option requiring a value with no value present (end of tokens, next token is another option unless consumed via `=` form, or empty `=` value) MUST fail as `Missing value for <option>` on stderr, followed on stderr by the relevant help block — FR-017. Exit code 2. An empty value MUST never be accepted as a real value. Each reader's own spec names its option in the message. The `=` form MUST be written with no spaces (`--opt=v`); `--opt = v` and `--opt= v` are always errors (three/one broken tokens, never a value). An `=` value on an arity-0 option (`--help=x`) is the same error naming that option.
+- **FR-016**: Command-level requirements (is `--provider` required or defaulted? is text required?) MUST be decided by the command handler AFTER parsing, never by the readers. `ask` defaults a missing provider; another command MAY fail on it. Readers only collect.
+- **FR-017**: Every parse error MUST print the relevant help block after the error line, on stderr (not stdout). Which block: general help if no command word is known at the error position; that command's verbatim block if a command word is already known. This covers: unknown global option/command (general), unknown command option (that command's), missing/empty value (help of the side where the option lives), extra text token (help of the side where the text lives), unknown command word (general). Success-path `--help` stays on stdout, exit 0 — errors never print to stdout.
 
 ### Key Entities
 
-- **Argument reader**: an optional parsing piece that owns one option family (its spellings, its value shape, its help lines). On the single command "process" it takes tokens, returns parsed value plus the unread remainder. Free to use any strategy (lazy first-token check, greedy full scan, linked-group consumption). Detachable by removing it from the registration list.
-- **Registration list**: the single place in the entry point naming which readers participate and in which order. The only edit needed to add or remove command-line capability.
-- **Remainder**: the tokens no reader has claimed yet. Flows from reader to reader inside one pass; the argument-processing loop repeats passes while the remainder shrinks. Whatever still looks like an option after the loop stops is an unknown-option error.
+- **Option**: one shared shape for global and command options — long name, exactly one short alias, fixed arity, occurrence bounds (`min`/`max`, `Infinity` = unbounded). E.g. `--provider` / `-p` / arity 1 / `min 0, max 1`; `--attach` / `-a` / arity 1 / `min 0, max Infinity`. Global and command options are the same type; a command registration references the shared definition, never copies it.
+- **Command**: one shape per command — name word (no aliases for now), its own option list (`Option[]`, references to shared definitions where shapes match), a complete ready-to-print help block (`help`), and the handler function. No help text is ever generated from options — the block is printed verbatim, so any language or layout works.
+- **Global reader**: a reader registered in the entry point, valid from the first token. Allowed only with a uniform arity across all commands. Today: `--help` (0). Shared options (e.g. `--provider` with arity 1 everywhere) MAY be registered here as a convenience; a command that does not own the option rejects it.
+- **Command handler**: one function per command. Receives the finished parse state, validates its own requirements, executes. Does no parsing, never handles `--help`. The entry point knows the command name → handler mapping plus the command's registered options and help block.
+- **Argument reader**: an optional parsing piece that owns one option family (its spellings: one long + `=` form + exactly one short alias, its fixed arity, its help lines). On the single command "process" it takes tokens, returns parsed value plus the unread remainder. Detachable by removing it from the registration list.
+- **Registration list**: the single place in the entry point naming everything the loop knows — global readers, the command table (word → handler + its option readers + its help block). The only edit needed to add or remove capability.
+- **Remainder / text**: the tokens no reader has claimed. Exactly one leftover non-option token becomes the command text; two or more is an extra-text error.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: With all standard readers registered, asking via every existing option works exactly as before (same stdout, same stderr, same exit codes).
+- **SC-001**: With all standard readers registered, asking via every existing option works exactly as before (same stdout, same stderr, same exit codes), plus the free-order form (`ask "Hi" --provider faux`) works identically.
 - **SC-002**: Removing one reader from the registration list makes its option spellings fail as unknown options and removes its help lines, with no other code touched.
 - **SC-003**: A mistyped option is named in the error output and exits with a usage error; it never silently falls back to a default.
 - **SC-004**: An option with a missing value fails with a missing-value error naming the option; an empty value is never accepted.
+- **SC-005**: A foreign option for a command (`ask --name x`, `config --provider x`) fails as unknown for that command while remaining valid for the command that owns it.
+- **SC-006**: `ask "Hi there"` and `ask Hi` are accepted as one text token; `ask Hi there` (two leftover tokens) fails naming `there` with a quote hint.
 
 ## Assumptions
 
-- The standard set today is three readers: provider (003), key (004), model (005). Environment- and config-file-based provider sources are future features with their own specs, not part of this spec; this spec only fixes the argument-processing-loop mechanics they will plug into.
-- Help short-circuit (`dchat ask --help`) and command routing (`dchat` / `ask` / unknown command) are unchanged and out of scope.
+- The standard set today is one command (`ask`) with three readers: provider (003), key (004), model (005). `chat`/`config` are future commands with their own specs, not built here; this spec only fixes the two-phase mechanics they will plug into.
+- General help (`dchat --help`) and command routing (unknown command error) stay in the entry point; per-command help and per-command validation live in the handler.
 - The existing unknown-provider check (known ids listed, exit code 2) stays where it is; this spec covers only option parsing, not provider-id validation.
