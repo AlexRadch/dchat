@@ -44,7 +44,7 @@ A future global (e.g. a `--verbose` flag or a shared `--provider` option) is add
 
 ## Requirements
 
-- **FR-001**: The global list is `globals: Def[]` using the 002 `Def` type (`{ kind: "flag"; def: Flag } | { kind: "option"; def: Option }`). `Flag` and `Option` stay clean; `kind` lives only in the wrapper.
+- **FR-001**: The global list is `GLOBAL_ARGS: Def[]` in `src/globalArgs.ts` using the 002 `Def` type (`{ kind: "flag"; def: Flag } | { kind: "option"; def: Option }`). `Flag` and `Option` stay clean; `kind` lives only in the wrapper. Today: three options (`--provider` / `-p`, `--key` / `-k`, `--model` / `-m`, all `repeatable: false`).
 - **FR-002**: `--help` / `-h` MUST NOT appear in this table. It is a loop rule (002 FR-007), always active, stops the scan, prints to stdout, exit 0.
 - **FR-003**: Before any command word ONLY this list (plus the help rule) is accepted. A command-owned spelling before its word fails immediately, never buffered.
 - **FR-004**: A global keeps one shape everywhere: same long form, same alias, same `repeatable` (for options). A command MUST NOT redeclare a global spelling with a different shape; within one command no two defs (own + global) may claim the same spelling.

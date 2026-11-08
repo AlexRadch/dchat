@@ -3,6 +3,7 @@
 // re-enables it. Until then the command table holds no enabled commands:
 // any command word fails as unknown, only global --help works.
 import { scanArgv, ParseError } from "./args.js";
+import { GLOBAL_ARGS } from "./globalArgs.js";
 
 const GENERAL_HELP = [
 	"Usage: dchat <command> [options]",
@@ -22,7 +23,7 @@ async function main(): Promise<void> {
 		return;
 	}
 	try {
-		const result = scanArgv(argv, [], [], GENERAL_HELP);
+		const result = scanArgv(argv, GLOBAL_ARGS, [], GENERAL_HELP);
 		if (result.help !== undefined) {
 			console.log(result.help);
 			return;
