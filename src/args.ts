@@ -19,12 +19,22 @@ export interface Option {
 	repeatable: boolean;
 }
 
-// kind + global + skipArity live only in the wrapper; Flag and Option stay clean.
-// global: true stays visible after a command word; skipArity (flag only):
-// when the flag is set, the arity check is skipped (help uses it).
-export type ArgDef =
-	| { kind: "flag"; def: Flag; global: boolean; skipArity?: boolean }
-	| { kind: "option"; def: Option; global: boolean };
+// kind lives only in the wrapper; Flag and Option stay clean.
+// General heirs carry the marker — command-side entries cannot have it:
+// global: true stays visible after a command word.
+export type ArgDef = { kind: "flag"; def: Flag } | { kind: "option"; def: Option };
+
+export interface GeneralFlag extends Flag {
+	global: boolean;
+}
+
+export interface GeneralOption extends Option {
+	global: boolean;
+}
+
+export type GeneralArgDef =
+	| { kind: "flag"; def: GeneralFlag }
+	| { kind: "option"; def: GeneralOption };
 
 export interface Command {
 	name: string;
@@ -77,7 +87,7 @@ export type ScanResult =
 // no meaningful value to return), so they stay thrown as plain Errors.
 // Expected input failures never throw: they return the parse-error arm.
 
-function spellings(def: ArgDef): string[] {
+function spellings(def: ArgDef | GeneralArgDef): string[] {
 	const out = [def.def.name];
 	if (def.def.alias !== "") out.push(def.def.alias);
 	return out;
@@ -85,22 +95,22 @@ function spellings(def: ArgDef): string[] {
 
 // Flags store under one key: positive name holds true, its --no- form writes
 // false to the same key (e.g. --no-verbose clears --verbose).
-function storageKey(def: ArgDef): string {
+function storageKey(def: ArgDef | GeneralArgDef): string {
 	if (def.kind === "flag" && def.def.name.startsWith("--no-")) {
 		return `--${def.def.name.slice(5)}`;
 	}
 	return def.def.name;
 }
 
-function dedupRefs(defs: ArgDef[]): ArgDef[] {
+function dedupRefs<T extends ArgDef | GeneralArgDef>(defs: T[]): T[] {
 	return [...new Set(defs)];
 }
 
 // Registration errors are programmer errors: same spelling on two different
 // entries is rejected loudly instead of silently shadowing. The same
 // referenced object counted twice is one rule, not a duplicate.
-function assertUnique(active: ArgDef[], label: string): void {
-	const seen = new Map<string, ArgDef>();
+function assertUnique(active: (ArgDef | GeneralArgDef)[], label: string): void {
+	const seen = new Map<string, ArgDef | GeneralArgDef>();
 	for (const def of active) {
 		for (const s of spellings(def)) {
 			const prev = seen.get(s);
@@ -127,7 +137,7 @@ function assertArityShape(command: Command): void {
 	}
 }
 
-function findExact(active: ArgDef[], token: string): ArgDef | undefined {
+function findExact(active: (ArgDef | GeneralArgDef)[], token: string): ArgDef | GeneralArgDef | undefined {
 	return active.find((d) => token === d.def.name || (d.def.alias !== "" && token === d.def.alias));
 }
 
@@ -137,17 +147,21 @@ function findExact(active: ArgDef[], token: string): ArgDef | undefined {
 // Only programmer bugs (duplicate registration) throw, as plain Errors.
 export function scanArgv(
 	argv: string[],
-	generals: ArgDef[],
+	generals: GeneralArgDef[],
 	commands: Command[],
 ): ScanResult {
 	assertUnique(dedupRefs(generals), "generals");
+	// Only general entries carry global — narrowing by property presence,
+	// never by name; command entries cannot be mistaken for generals.
+	const isGlobal = (d: ArgDef | GeneralArgDef): d is GeneralArgDef =>
+		"global" in d.def && (d.def as { global?: boolean }).global === true;
 	for (const c of commands) {
 		// The same referenced general counted twice is one rule (dedupRefs);
 		// a DIFFERENT object with the same spelling is the command's rule
 		// after its word (fallback order per FR-001) — NOT a duplicate.
 		// Only clashes OUTSIDE the command's own spellings collide loudly.
 		const ownSpelled = new Set(c.defs.flatMap(spellings));
-		const globalOnly = generals.filter((g) => g.global && !c.defs.includes(g));
+		const globalOnly = generals.filter((g) => isGlobal(g) && !c.defs.includes(g as ArgDef));
 		assertUnique(
 			dedupRefs(globalOnly.filter((g) => !spellings(g).some((s) => ownSpelled.has(s)))),
 			`command ${c.name}`,
@@ -156,23 +170,23 @@ export function scanArgv(
 	}
 	let command: Command | undefined;
 	const argValues: ArgValues = {};
-	const counts = new Map<ArgDef, number>();
+	const counts = new Map<ArgDef | GeneralArgDef, number>();
 	const texts: string[] = [];
 	let endOfOptions = false;
 
 	// Before the word only generals are visible; after it the command's own
 	// defs are tried first, then generals with global: true — never the rest.
-	const active = (): ArgDef[] =>
-		dedupRefs(command ? [...command.defs, ...generals.filter((g) => g.global)] : generals);
+	const active = (): (ArgDef | GeneralArgDef)[] =>
+		dedupRefs(command ? [...command.defs, ...generals.filter(isGlobal)] : generals);
 	// Dumb rule resolution (spec 002 FR-001): the command's own entry wins
 	// after its word, else the global general. Never compared, never validated.
-	const ruleFor = (entry: ArgDef): ArgDef => {
+	const ruleFor = (entry: ArgDef | GeneralArgDef): ArgDef | GeneralArgDef => {
 		if (!command) return entry;
-		if (command.defs.includes(entry)) return entry;
+		if (command.defs.includes(entry as ArgDef)) return entry;
 		const spelled = spellings(entry);
 		return (
 			command.defs.find((d) => spellings(d).some((s) => spelled.includes(s))) ??
-			generals.find((g) => g.global && spellings(g).some((s) => spelled.includes(s))) ??
+			generals.find((g) => isGlobal(g) && spellings(g).some((s) => spelled.includes(s))) ??
 			entry
 		);
 	};
@@ -183,7 +197,7 @@ export function scanArgv(
 	const tooMany = (name: string): ScanResult => {
 		return fail(`Too many occurrences of ${name}.`, 2);
 	};
-	const storeOption = (entry: Extract<ArgDef, { kind: "option" }>, value: string): ScanResult | undefined => {
+	const storeOption = (entry: Extract<ArgDef | GeneralArgDef, { kind: "option" }>, value: string): ScanResult | undefined => {
 		if ((counts.get(entry) ?? 0) >= 1 && !entry.def.repeatable) {
 			return tooMany(entry.def.name);
 		}
@@ -306,16 +320,13 @@ export function scanArgv(
 	if (!command) {
 		return { kind: "no-command", result: { argValues, params: texts } };
 	}
-	// Arity is checked on the run path only; a set skipArity flag skips it
-	// (help works with any count — generic marker, never the help name).
-	const skipsArity = [...counts.keys()].some((e) => e.kind === "flag" && e.skipArity === true);
-	if (!skipsArity) {
-		if (texts.length < command.minParams) {
-			return fail(`Too few params for ${command.name}.`, 2);
-		}
-		if (command.maxParams < MAX_PARAMS && texts.length > command.maxParams) {
-			return fail(`Too many params for ${command.name}.`, 2);
-		}
+	// Arity is checked on the run path, always — a set flag changes nothing.
+	// A help flag on an arity-1 command fails as Too few params (dumb).
+	if (texts.length < command.minParams) {
+		return fail(`Too few params for ${command.name}.`, 2);
+	}
+	if (command.maxParams < MAX_PARAMS && texts.length > command.maxParams) {
+		return fail(`Too many params for ${command.name}.`, 2);
 	}
 	return { kind: "run", result: { command, argValues, params: texts } };
 }

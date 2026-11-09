@@ -4,6 +4,7 @@ import {
 	scanArgv,
 	MAX_PARAMS,
 	type ArgDef,
+	type GeneralArgDef,
 	type Command,
 	type ScanResult,
 } from "../src/args.js";
@@ -12,21 +13,19 @@ import {
 // Fake defs: every shape the grammar allows. Fake command defs are referenced
 // as own defs (global markers on them are irrelevant there); generals passed
 // per-test carry their own global markers.
-const flag: ArgDef = { kind: "flag", def: { name: "--verbose", alias: "-V" }, global: false };
-const noFlag: ArgDef = { kind: "flag", def: { name: "--no-verbose", alias: "" }, global: false };
-const bareFlag: ArgDef = { kind: "flag", def: { name: "--dry", alias: "" }, global: false };
-const opt: ArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false }, global: false };
+const flag: ArgDef = { kind: "flag", def: { name: "--verbose", alias: "-V" } };
+const noFlag: ArgDef = { kind: "flag", def: { name: "--no-verbose", alias: "" } };
+const bareFlag: ArgDef = { kind: "flag", def: { name: "--dry", alias: "" } };
+const opt: ArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false } };
 const bareOpt: ArgDef = {
 	kind: "option",
 	def: { name: "--model", alias: "", repeatable: false },
-	global: false,
 };
 const repeatOpt: ArgDef = {
 	kind: "option",
 	def: { name: "--tag", alias: "-t", repeatable: true },
-	global: false,
 };
-const help: ArgDef = { kind: "flag", def: { name: "--help", alias: "-h" }, global: true, skipArity: true };
+const help: GeneralArgDef = { kind: "flag", def: { name: "--help", alias: "-h", global: true } };
 
 function fakeCmd(defs: ArgDef[] = [flag, noFlag, bareFlag, opt, bareOpt, repeatOpt]): Command {
 	return { name: "fake", defs, minParams: 0, maxParams: MAX_PARAMS };
@@ -169,7 +168,7 @@ describe("scan: run arm (no help requested)", () => {
 	});
 
 	it("no word reports facts, not a failure", () => {
-		const g: ArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false }, global: true };
+		const g: GeneralArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false, global: true } };
 		const cmd: Command = { name: "other", defs: [], minParams: 0, maxParams: MAX_PARAMS };
 		const r = scanArgv(["--provider", "faux"], [g], [cmd]);
 		assert.equal(r.kind, "no-command");
@@ -202,7 +201,7 @@ describe("scan: params and --", () => {
 });
 
 describe("scan: globals before command", () => {
-	const g: ArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false }, global: true };
+	const g: GeneralArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false, global: true } };
 
 	it("global valid before and after the word, same shape", () => {
 		const cmd: Command = { name: "c", defs: [], minParams: 0, maxParams: MAX_PARAMS };
@@ -235,7 +234,7 @@ describe("scan: help as ordinary global flag", () => {
 	}
 
 	it("help with no word rides no-command, flag set", () => {
-		const g: ArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false }, global: false };
+		const g: GeneralArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false, global: false } };
 		const r = scanArgv(["--provider", "faux", "--help"], [g, help], [helpCmd()]);
 		assert.equal(r.kind, "no-command");
 		if (r.kind !== "no-command") return;
@@ -243,8 +242,9 @@ describe("scan: help as ordinary global flag", () => {
 	});
 
 	it("-h before and after the word carry the same flag", () => {
-		const a = scanArgv(["-h", "fake"], [help], [helpCmd()]);
-		const b = scanArgv(["fake", "-h"], [help], [helpCmd()]);
+		const zero: Command = { name: "fake", defs: [help], minParams: 0, maxParams: MAX_PARAMS };
+		const a = scanArgv(["-h", "fake"], [help], [zero]);
+		const b = scanArgv(["fake", "-h"], [help], [zero]);
 		assert.equal(a.kind, "run");
 		assert.equal(b.kind, "run");
 		if (a.kind !== "run" || b.kind !== "run") return;
@@ -252,7 +252,7 @@ describe("scan: help as ordinary global flag", () => {
 		assert.deepEqual(a.result, b.result);
 	});
 
-	it("run with help flag carries parsed values and params, arity skipped", () => {
+	it("run with help flag carries parsed values and params", () => {
 		const r = scanArgv(["fake", "--provider", "faux", "hi", "-h"], [help], [helpCmd([opt, help])]);
 		assert.equal(r.kind, "run");
 		if (r.kind !== "run") return;
@@ -299,7 +299,7 @@ describe("scan: help as ordinary global flag", () => {
 	});
 
 	it("non-global general invisible after the word", () => {
-		const g: ArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false }, global: false };
+		const g: GeneralArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false, global: false } };
 		expectParseError(
 			scanArgv(["fake", "--provider", "faux"], [g], [helpCmd()]),
 			"Unknown option: --provider.",
@@ -308,8 +308,8 @@ describe("scan: help as ordinary global flag", () => {
 	});
 
 	it("re-check on word: multi-use general, single-use command rule fails", () => {
-		const multi: ArgDef = { kind: "option", def: { name: "--tag", alias: "-t", repeatable: true }, global: true };
-		const single: ArgDef = { kind: "option", def: { name: "--tag", alias: "-t", repeatable: false }, global: false };
+		const multi: GeneralArgDef = { kind: "option", def: { name: "--tag", alias: "-t", repeatable: true, global: true } };
+		const single: GeneralArgDef = { kind: "option", def: { name: "--tag", alias: "-t", repeatable: false, global: false } };
 		expectParseError(
 			scanArgv(["--tag", "a", "--tag", "b", "fake"], [multi], [{ name: "fake", defs: [single], minParams: 0, maxParams: MAX_PARAMS }]),
 			"Too many occurrences of --tag.",
@@ -318,17 +318,17 @@ describe("scan: help as ordinary global flag", () => {
 	});
 
 	it("re-check on word: single use passes under single-use command rule", () => {
-		const multi: ArgDef = { kind: "option", def: { name: "--tag", alias: "-t", repeatable: true }, global: true };
-		const single: ArgDef = { kind: "option", def: { name: "--tag", alias: "-t", repeatable: false }, global: false };
+		const multi: GeneralArgDef = { kind: "option", def: { name: "--tag", alias: "-t", repeatable: true, global: true } };
+		const single: GeneralArgDef = { kind: "option", def: { name: "--tag", alias: "-t", repeatable: false, global: false } };
 		const r = scanArgv(["--tag", "a", "fake"], [multi], [{ name: "fake", defs: [single], minParams: 0, maxParams: MAX_PARAMS }]);
 		assert.equal(r.kind, "run");
 	});
 
-	it("skipArity flag skips the arity check on run", () => {
+	it("set flag does NOT skip arity: help on arity-1 fails as Too few params", () => {
 		const r = scanArgv(["fake", "-h"], [help], [helpCmd()]);
-		assert.equal(r.kind, "run");
-		if (r.kind !== "run") return;
-		assert.deepEqual(r.result.params, []);
+		assert.equal(r.kind, "parse-error");
+		if (r.kind !== "parse-error") return;
+		assert.equal(r.result.message, "Too few params for fake.");
 	});
 });
 
@@ -406,10 +406,12 @@ describe("scan: arity", () => {
 		assert.equal(r.kind, "run");
 	});
 
-	it("skipArity help flag skips the arity check (plain flag entry)", () => {
-		const h: ArgDef = { kind: "flag", def: { name: "--help", alias: "-h" }, global: true, skipArity: true };
+	it("help flag on arity-1 command fails dumb (no privilege)", () => {
+		const h: GeneralArgDef = { kind: "flag", def: { name: "--help", alias: "-h", global: true } };
 		const r = scanArgv(["fake", "-h"], [h], [arityCmd(1, 2)]);
-		assert.equal(r.kind, "run");
+		assert.equal(r.kind, "parse-error");
+		if (r.kind !== "parse-error") return;
+		assert.equal(r.result.message, "Too few params for fake.");
 	});
 
 	it("bad arity shape throws (programmer bug)", () => {

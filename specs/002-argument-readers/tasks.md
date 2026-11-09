@@ -6,11 +6,17 @@
 
 **Tests**: Union arms on fake defs; old short-circuit asserts replaced by arm asserts.
 
+## Phase 11: GeneralArgDef heirs (markers only on generals)
+
+- [x] T035 `src/args.ts`: `ArgDef` back to plain (`{ kind; def }` — no markers); `GeneralFlag extends Flag { global }`, `GeneralOption extends Option { global }`, `GeneralArgDef` wrapper; `scanArgv(argv, generals: GeneralArgDef[], ...)`; all internals (`counts`, `ruleFor`, `active`, re-check) typed over the general side where markers are read, plain `ArgDef` where command defs flow.
+- [x] T036 `src/generalArgs.ts`: entries typed `GeneralArgDef`; `src/chat.ts`, `tests/scanArgv.test.ts` follow the new types (command-side fakes stay plain `ArgDef`).
+- [x] T037 Specs 002 (FR-001 marker placement, `Command`, `Flag`, Parse result), 008 (FR-001 wrapper shape), plan, README untouched (names unchanged); verify: `npm test` + `npm run typecheck` green.
+
 ## Phase 10: generals with global marker, help as ordinary flag
 
-- [x] T031 `src/args.ts`: `ArgDef` gains `global: boolean` (wrapper-only) + `skipArity?: boolean` on the flag arm; `GeneralHelpPayload`/`CommandHelpPayload` removed, `ScanResult = Run | NoCommand | ParseFailure`; no hard-coded `--help`/`-h` spellings; visible defs = generals before word, own-first-then-`global: true` after; re-check collected tokens on word resolve (dumb, never compared); arity skipped when a set flag carries `skipArity`.
-- [x] T032 `src/globalArgs.ts` → `src/generalArgs.ts`: `GENERAL_ARGS` (three options `global: false` + `helpFlag` flag `global: true, skipArity: true`); `src/chat.ts`: entry point passes generals, reads help flag first in `run`/`no-command` (set → block stdout exit 0, handler never called); `GLOBAL_ARGS` name gone from code.
-- [x] T033 `tests/scanArgv.test.ts`: help cases on flag entries (before/after word, repeat fails, `=` fails, after `--` is text, error beats flag, re-check on word, `skipArity` skips arity); help payloads/arms asserts removed.
+- [x] T031 `src/args.ts`: `ArgDef` gains `global: boolean` (wrapper-only) on the flag+option arms; `skipArity` never lands (killed as a wrong privilege — dumb arity always wins); `GeneralHelpPayload`/`CommandHelpPayload` removed, `ScanResult = Run | NoCommand | ParseFailure`; no hard-coded `--help`/`-h` spellings; visible defs = generals before word, own-first-then-`global: true` after; re-check collected tokens on word resolve (dumb, never compared); arity always checked (dumb).
+- [x] T032 `src/globalArgs.ts` → `src/generalArgs.ts`: `GENERAL_ARGS` (three options `global: false` + `helpFlag` flag `global: true`); `src/chat.ts`: entry point passes generals, reads help flag first in `run`/`no-command` (set → block stdout exit 0, handler never called); `GLOBAL_ARGS` name gone from code.
+- [x] T033 `tests/scanArgv.test.ts`: help cases on flag entries (before/after word, repeat fails, `=` fails, after `--` is text, error beats flag, re-check on word, no flag skips arity); help payloads/arms asserts removed.
 - [x] T034 Specs 008 (generals table, `global` column, help row), 002 (this plan's items), README registry; verify: `npm test` + `npm run typecheck` green.
 
 ## Phase 9: argValues rename
