@@ -6,6 +6,12 @@
 
 **Tests**: Union arms on fake defs; old short-circuit asserts replaced by arm asserts.
 
+## Phase 4: parse-error arm (ADR-004, no helpBlock in scan)
+
+- [x] T011 `src/args.ts`: fourth arm `parse-error` (`{ kind; result: { message; exitCode; command? } }`); scan returns it instead of `throw ParseError`; `chat.ts` becomes one `switch` (helps → stdout 0, `run` → dispatch, `parse-error` → restore block + stderr); `ParseError` class removed (registration `Duplicate spelling` stays a plain `Error` — programmer bug, truly exceptional).
+- [x] T012 `tests/scanArgv.test.ts`: `expectParseError` helper deleted; every error case asserts the returned arm directly (`kind`, `message`, `exitCode`, `command?`) instead of catching a closure.
+- [x] T013 Verify: `npm test` + `npm run typecheck` green; live error paths (`--bogus`, `ask --bogus` with commands, `--help=x`) print `message + block` on stderr with exit 1/2.
+
 ## Phase 3: ScanResult union (help remembered, not terminal)
 
 - [x] T008 `src/args.ts`: `ScanResult = GeneralHelp | CommandHelp | Run` (three `interface`s + union); scan remembers help and continues; `-h` repeat exempt from too-many (no `counts` entry); entry point `chat.ts` switches on `kind`.

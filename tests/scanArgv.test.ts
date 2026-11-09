@@ -29,29 +29,22 @@ function fakeCmd(defs: Def[] = [flag, noFlag, bareFlag, opt, bareOpt, repeatOpt]
 	return { name: "fake", defs, help: CMD_HELP };
 }
 
-function expectParseError(
-	fn: () => unknown,
-	message: string,
-	helpBlock: string,
-	exitCode: 1 | 2,
-): void {
-	try {
-		fn();
-	} catch (e) {
-		assert.ok(e instanceof ParseError);
-		assert.equal(e.message, message);
-		assert.equal(e.helpBlock, helpBlock);
-		assert.equal(e.exitCode, exitCode);
-		return;
-	}
-	assert.fail("expected ParseError");
-}
-
-
-// ADR-003: kind lives on the union arm; payloads stay clean. Narrow by kind,
-// then read the payload through `.result`.
+// ADR-003 + ADR-004: kind lives on the union arm; expected failures return
+// the parse-error arm, never throw. Narrow by kind, read via `.result`.
 function expectRun(r: ScanResult): asserts r is Extract<ScanResult, { kind: "run" }> {
 	assert.equal(r.kind, "run");
+}
+
+function expectParseError(
+	r: ScanResult,
+	message: string,
+	exitCode: 1 | 2,
+	commandName?: string,
+): asserts r is Extract<ScanResult, { kind: "parse-error" }> {
+	assert.equal(r.kind, "parse-error");
+	assert.equal(r.result.message, message);
+	assert.equal(r.result.exitCode, exitCode);
+	assert.equal(r.result.command?.name, commandName);
 }
 
 describe("scan: flags", () => {
@@ -79,28 +72,25 @@ describe("scan: flags", () => {
 
 	it("second identical flag fails as too-many", () => {
 		expectParseError(
-			() => scanArgv(["fake", "--verbose", "--verbose"], [], [fakeCmd()], GENERAL),
+			scanArgv(["fake", "--verbose", "--verbose"], [], [fakeCmd()], GENERAL),
 			"Too many occurrences of --verbose.",
-			CMD_HELP,
-			2,
+			2, "fake",
 		);
 	});
 
 	it("flag with = value fails", () => {
 		expectParseError(
-			() => scanArgv(["fake", "--verbose=x"], [], [fakeCmd()], GENERAL),
+			scanArgv(["fake", "--verbose=x"], [], [fakeCmd()], GENERAL),
 			"Unexpected value for --verbose.",
-			CMD_HELP,
-			2,
+			2, "fake",
 		);
 	});
 
 	it("-V=x fails (alias = form is not glued)", () => {
 		expectParseError(
-			() => scanArgv(["fake", "-V=x"], [], [fakeCmd()], GENERAL),
+			scanArgv(["fake", "-V=x"], [], [fakeCmd()], GENERAL),
 			"Unexpected value for --verbose.",
-			CMD_HELP,
-			2,
+			2, "fake",
 		);
 	});
 });
@@ -130,40 +120,35 @@ describe("scan: options", () => {
 
 	it("-o=value is an error, not a glued value", () => {
 		expectParseError(
-			() => scanArgv(["fake", "-p=faux"], [], [fakeCmd()], GENERAL),
+			scanArgv(["fake", "-p=faux"], [], [fakeCmd()], GENERAL),
 			"Unexpected value for --provider.",
-			CMD_HELP,
-			2,
+			2, "fake",
 		);
 	});
 
 	it("missing value: end, dash-next, empty =", () => {
 		expectParseError(
-			() => scanArgv(["fake", "--provider"], [], [fakeCmd()], GENERAL),
+			scanArgv(["fake", "--provider"], [], [fakeCmd()], GENERAL),
 			"Missing value for --provider.",
-			CMD_HELP,
-			2,
+			2, "fake",
 		);
 		expectParseError(
-			() => scanArgv(["fake", "--provider", "--dry"], [], [fakeCmd()], GENERAL),
+			scanArgv(["fake", "--provider", "--dry"], [], [fakeCmd()], GENERAL),
 			"Missing value for --provider.",
-			CMD_HELP,
-			2,
+			2, "fake",
 		);
 		expectParseError(
-			() => scanArgv(["fake", "--provider="], [], [fakeCmd()], GENERAL),
+			scanArgv(["fake", "--provider="], [], [fakeCmd()], GENERAL),
 			"Missing value for --provider.",
-			CMD_HELP,
-			2,
+			2, "fake",
 		);
 	});
 
 	it("second occurrence of single-shot fails, repeatable accumulates", () => {
 		expectParseError(
-			() => scanArgv(["fake", "--provider", "a", "--provider", "b"], [], [fakeCmd()], GENERAL),
+			scanArgv(["fake", "--provider", "a", "--provider", "b"], [], [fakeCmd()], GENERAL),
 			"Too many occurrences of --provider.",
-			CMD_HELP,
-			2,
+			2, "fake",
 		);
 		const r = scanArgv(["fake", "--tag", "a", "--tag", "b"], [], [fakeCmd()], GENERAL);
 		assert.deepEqual(r.result.options, { "--tag": ["a", "b"] });
@@ -226,9 +211,8 @@ describe("scan: globals before command", () => {
 	it("command-owned spelling before its word fails immediately", () => {
 		const cmd: Command = { name: "c", defs: [g], help: CMD_HELP };
 		expectParseError(
-			() => scanArgv(["--provider", "faux", "c"], [], [cmd], GENERAL),
+			scanArgv(["--provider", "faux", "c"], [], [cmd], GENERAL),
 			"Unknown option: --provider.",
-			GENERAL,
 			2,
 		);
 	});
@@ -279,35 +263,31 @@ describe("scan: help arms (union)", () => {
 
 	it("error beats help in either order", () => {
 		expectParseError(
-			() => scanArgv(["--help", "--bogus"], [], [fakeCmd()], GENERAL),
+			scanArgv(["--help", "--bogus"], [], [fakeCmd()], GENERAL),
 			"Unknown option: --bogus.",
-			GENERAL,
 			2,
 		);
 	});
 
 	it("help beside an option never fills its value slot", () => {
 		expectParseError(
-			() => scanArgv(["fake", "--provider", "-h"], [], [fakeCmd()], GENERAL),
+			scanArgv(["fake", "--provider", "-h"], [], [fakeCmd()], GENERAL),
 			"Missing value for --provider.",
-			CMD_HELP,
-			2,
+			2, "fake",
 		);
 	});
 
 
 	it("--help=x fails; --no-help is unknown", () => {
 		expectParseError(
-			() => scanArgv(["--help=x"], [], [fakeCmd()], GENERAL),
+			scanArgv(["--help=x"], [], [fakeCmd()], GENERAL),
 			"Unexpected value for --help.",
-			GENERAL,
 			2,
 		);
 		expectParseError(
-			() => scanArgv(["fake", "--no-help"], [], [fakeCmd()], GENERAL),
+			scanArgv(["fake", "--no-help"], [], [fakeCmd()], GENERAL),
 			"Unknown option: --no-help.",
-			CMD_HELP,
-			2,
+			2, "fake",
 		);
 	});
 });
@@ -315,27 +295,24 @@ describe("scan: help arms (union)", () => {
 describe("scan: errors carry the relevant help", () => {
 	it("unknown global option carries general help", () => {
 		expectParseError(
-			() => scanArgv(["--bogus"], [], [fakeCmd()], GENERAL),
+			scanArgv(["--bogus"], [], [fakeCmd()], GENERAL),
 			"Unknown option: --bogus.",
-			GENERAL,
 			2,
 		);
 	});
 
 	it("unknown command-option carries command help", () => {
 		expectParseError(
-			() => scanArgv(["fake", "--bogus"], [], [fakeCmd()], GENERAL),
+			scanArgv(["fake", "--bogus"], [], [fakeCmd()], GENERAL),
 			"Unknown option: --bogus.",
-			CMD_HELP,
-			2,
+			2, "fake",
 		);
 	});
 
 	it("unknown command word exits 1 with general help", () => {
 		expectParseError(
-			() => scanArgv(["badcmd"], [], [fakeCmd()], GENERAL),
+			scanArgv(["badcmd"], [], [fakeCmd()], GENERAL),
 			"Unknown command: badcmd.",
-			GENERAL,
 			1,
 		);
 	});

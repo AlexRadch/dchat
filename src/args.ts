@@ -44,30 +44,30 @@ export interface RunPayload {
 	text?: string;
 }
 
-// Discriminated union per ADR-003: the tag lives on the arms, the payloads
-// stay clean (a payload knows nothing about the unions it joins). Bare
-// `help?` on an unstaged result made no sense — now the arm tells it.
+export interface ParseErrorPayload {
+	message: string;
+	exitCode: 1 | 2;
+	command?: Command;
+}
+
+// Discriminated union per ADR-003 + ADR-004: the tag lives on the arms, the
+// payloads stay clean (a payload knows nothing about the unions it joins).
+// Expected scan failures are the parse-error arm (message + exit code +
+// resolved word; no help text — the entry point restores the block itself),
+// never exceptions. Bare `help?` on an unstaged result made no sense — now
+// the arm tells it.
 // Declared with interfaces (plain structural shapes, erased at runtime —
 // the C# record equivalent, not class: nothing to construct or extend,
 // the `kind` string already discriminates).
 export type ScanResult =
 	| { kind: "general-help"; result: GeneralHelpPayload }
 	| { kind: "command-help"; result: CommandHelpPayload }
-	| { kind: "run"; result: RunPayload };
+	| { kind: "run"; result: RunPayload }
+	| { kind: "parse-error"; result: ParseErrorPayload };
 
-export class ParseError extends Error {
-	exitCode: 1 | 2;
-	helpBlock: string;
-	constructor(message: string, helpBlock: string, exitCode: 1 | 2) {
-		super(message);
-		this.helpBlock = helpBlock;
-		this.exitCode = exitCode;
-	}
-}
-
-function relevantHelp(command: Command | undefined, generalHelp: string): string {
-	return command ? command.help : generalHelp;
-}
+// Registration errors are programmer bugs (ADR-004: truly exceptional —
+// no meaningful value to return), so they stay thrown as plain Errors.
+// Expected input failures never throw: they return the parse-error arm.
 
 function spellings(def: Def): string[] {
 	const out = [def.def.name];
@@ -109,7 +109,8 @@ function findExact(active: Def[], token: string): Def | undefined {
 
 // Single left-to-right scan. Help is remembered, not terminal: the scan keeps
 // going so later tokens may still fail (an error always beats help).
-// Any other decisive token throws ParseError carrying its help block.
+// Expected input failures return the parse-error arm (ADR-004), never throw.
+// Only programmer bugs (duplicate registration) throw, as plain Errors.
 export function scanArgv(
 	argv: string[],
 	globals: Def[],
@@ -129,13 +130,16 @@ export function scanArgv(
 
 	const active = (): Def[] =>
 		dedupRefs(command ? [...globals, ...command.defs] : globals);
-	const helpFor = (): string => relevantHelp(command, generalHelp);
-	const tooMany = (name: string): never => {
-		throw new ParseError(`Too many occurrences of ${name}.`, helpFor(), 2);
+	const fail = (message: string, exitCode: 1 | 2): ScanResult => ({
+		kind: "parse-error",
+		result: { message, exitCode, command },
+	});
+	const tooMany = (name: string): ScanResult => {
+		return fail(`Too many occurrences of ${name}.`, 2);
 	};
-	const storeOption = (entry: Extract<Def, { kind: "option" }>, value: string): void => {
+	const storeOption = (entry: Extract<Def, { kind: "option" }>, value: string): ScanResult | undefined => {
 		if ((counts.get(entry) ?? 0) >= 1 && !entry.def.repeatable) {
-			tooMany(entry.def.name);
+			return tooMany(entry.def.name);
 		}
 		counts.set(entry, (counts.get(entry) ?? 0) + 1);
 		const prev = options[entry.def.name];
@@ -153,7 +157,7 @@ export function scanArgv(
 			continue;
 		}
 		if (!endOfOptions && (t.startsWith("--help=") || t.startsWith("-h="))) {
-			throw new ParseError("Unexpected value for --help.", helpFor(), 2);
+			return fail("Unexpected value for --help.", 2);
 		}
 		if (!endOfOptions && t === "--") {
 			endOfOptions = true;
@@ -165,7 +169,7 @@ export function scanArgv(
 			const exact = findExact(list, t);
 			if (exact) {
 				if (exact.kind === "flag") {
-					if ((counts.get(exact) ?? 0) >= 1) tooMany(exact.def.name);
+					if ((counts.get(exact) ?? 0) >= 1) return tooMany(exact.def.name);
 					counts.set(exact, 1);
 					options[storageKey(exact)] = exact.def.name.startsWith("--no-") ? false : true;
 					i++;
@@ -173,9 +177,10 @@ export function scanArgv(
 				}
 				const v = argv[i + 1];
 				if (v === undefined || v === "" || v === "--help" || v === "-h" || (v.startsWith("-") && v !== "--")) {
-					throw new ParseError(`Missing value for ${exact.def.name}.`, helpFor(), 2);
+					return fail(`Missing value for ${exact.def.name}.`, 2);
 				}
-				storeOption(exact, v);
+				const stored = storeOption(exact, v);
+				if (stored) return stored;
 				i += 2;
 				continue;
 			}
@@ -186,20 +191,21 @@ export function scanArgv(
 				const byName = list.find((d) => lname === d.def.name);
 				if (byName) {
 					if (byName.kind === "flag") {
-						throw new ParseError(`Unexpected value for ${byName.def.name}.`, helpFor(), 2);
+						return fail(`Unexpected value for ${byName.def.name}.`, 2);
 					}
 					if (suffix === "") {
-						throw new ParseError(`Missing value for ${byName.def.name}.`, helpFor(), 2);
+						return fail(`Missing value for ${byName.def.name}.`, 2);
 					}
-					storeOption(byName, suffix);
+					const storedByName = storeOption(byName, suffix);
+					if (storedByName) return storedByName;
 					i++;
 					continue;
 				}
 				const byAlias = list.find((d) => d.def.alias !== "" && lname === d.def.alias);
 				if (byAlias) {
-					throw new ParseError(`Unexpected value for ${byAlias.def.name}.`, helpFor(), 2);
+					return fail(`Unexpected value for ${byAlias.def.name}.`, 2);
 				}
-				throw new ParseError(`Unknown option: ${t}.`, helpFor(), 2);
+				return fail(`Unknown option: ${t}.`, 2);
 			}
 			const glued = list.find(
 				(d) =>
@@ -209,11 +215,12 @@ export function scanArgv(
 					t.length > d.def.alias.length,
 			);
 			if (glued && glued.kind === "option") {
-				storeOption(glued, t.slice(glued.def.alias.length));
+				const storedGlued = storeOption(glued, t.slice(glued.def.alias.length));
+				if (storedGlued) return storedGlued;
 				i++;
 				continue;
 			}
-			throw new ParseError(`Unknown option: ${t}.`, helpFor(), 2);
+			return fail(`Unknown option: ${t}.`, 2);
 		}
 		if (!command && !endOfOptions) {
 			const found = commands.find((c) => c.name === t);
@@ -222,7 +229,7 @@ export function scanArgv(
 				i++;
 				continue;
 			}
-			throw new ParseError(`Unknown command: ${t}.`, generalHelp, 1);
+			return fail(`Unknown command: ${t}.`, 1);
 		}
 		texts.push(t);
 		i++;

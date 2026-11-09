@@ -68,7 +68,7 @@ A user repeats a flag or a single-shot option and gets a loud error. A repeatabl
 2. **Given** command `ask` already seen, **When** `--help` appears, **Then** a `command-help` for `ask` is returned (its block + that command + parsed `options`/`text`); entry point prints to stdout, exit 0.
 3. **Given** `-h ask` or `ask -h`, **When** scanned, **Then** both return the identical `command-help` for `ask` — the help flag does not stop the scan, the word still resolves.
 4. **Given** `--help=x` or `--no-help`, **When** scanned, **Then** it fails as an option error (help takes no value, `--no-help` is unknown).
-5. **Given** `--help` plus an erroneous token in either order, **When** scanned, **Then** the error wins — help selects *which* block to show, it never hides a parse error.
+5. **Given** `--help` plus an erroneous token in either order, **When** scanned, **Then** a `parse-error` is returned (the error wins) — the entry point restores the relevant block at print time.
 
 ---
 
@@ -91,20 +91,20 @@ A user repeats a flag or a single-shot option and gets a loud error. A repeatabl
 - **FR-007**: `--help` / `-h` is a loop rule, not a definition. It is valid before any command and after a command word: it is remembered (not returned yet), already-parsed `options`/`text` and any resolved command are kept, the scan keeps going — later tokens may still fail (an error always beats help). After `--`, `--help` is plain text. `--help=x` fails as unexpected-value; `--no-help` fails as unknown-option. `-h ask` and `ask -h` behave identically — both resolve `ask` and return the same `command-help` — because the word is still scanned in either order.
 - **FR-008**: A bare `--` ends option processing: it is consumed, everything after it is `any-plain` text, even tokens starting with `-`.
 - **FR-009**: Detaching a definition (removing it from the command's defs) removes its spellings: former spellings fail as unknown-option and its lines vanish from that command's verbatim help block.
-- **FR-010**: Every parse error prints the relevant help block after the error line on stderr (general help if no command word known yet, that command's verbatim block otherwise). Unknown command exits 1; all other parse errors exit 2. Empty `argv` prints general help on stderr, exit 2, without scanning.
+- **FR-010**: Expected scan failures are a fourth result arm, not exceptions (ADR-004): `parse-error` (`{ kind: "parse-error"; result: { message; exitCode; command? } }` — diagnosis, shell code, and the resolved word if any; no `helpBlock`, the entry point restores the block itself). The entry point prints `message + "\n\n" + block` on stderr, where block is general help (no command yet) or that command's verbatim block. Unknown command exits 1; all other parse errors exit 2. Empty `argv` prints general help on stderr, exit 2, without scanning.
 
 ### Key Entities
 
 - **Flag**: `{ name: "--flag"; alias: "-f" }` — zero values, never repeats, `=` always an error. The `--no-<name>` off-form is a second `Flag` entry, never automatic.
 - **Option**: `{ name: "--option"; alias: "-o"; repeatable: boolean }` — exactly one raw-string value per occurrence; `repeatable: true` accumulates, `false` rejects the second occurrence.
 - **Command**: `{ name: string; defs: Def[]; help: string }` — the word, its own defs (references to shared definitions where shapes match), and its complete ready-to-print help block. `Def = { kind: "flag"; def: Flag } | { kind: "option"; def: Option }` — `kind` lives only where the two are mixed, the types themselves stay clean.
-- **Parse result**: a discriminated union of three shapes — `general-help` (`{ kind: "general-help"; options; help }`, seen before any command word), `command-help` (`{ kind: "command-help"; command; options; text?; help }`, command known), or `run` (`{ kind: "run"; command?; options; text? }`, no help requested — handler runs). The differing first two are help results: help does not stop at its own token, it is remembered and the scan continues, so `-h ask` and `ask -h` return the same block. A bare `help?: string` on an unstaged result made no sense — exactly which kind you get is now on the wire. Each arm carries only what it needs: `options` everywhere (a flag stores `boolean`, an option stores `string[]`); `command` only where resolved; `text` only after a word; `help` only on the two help arms — `run` never carries it. The loop never interprets values beyond this shape.
+- **Parse result**: a discriminated union of four shapes — `general-help` (`{ kind: "general-help"; options; help }`, seen before any command word), `command-help` (`{ kind: "command-help"; command; options; text?; help }`, command known), `run` (`{ kind: "run"; command?; options; text? }`, no help requested — handler runs), or `parse-error` (`{ kind: "parse-error"; result: { message; exitCode; command? } }`, expected input failure — diagnosis, shell code, resolved word if any; ADR-004). The scan carries no help text in the error arm: the entry point restores the block (`command ? command.help : generalHelp`) and prints `message + "\n\n" + block` on stderr. The differing first two are help results: help does not stop at its own token, it is remembered and the scan continues, so `-h ask` and `ask -h` return the same block. A bare `help?: string` on an unstaged result made no sense — exactly which kind you get is now on the wire. Each arm carries only what it needs: `options` everywhere except the error arm (a flag stores `boolean`, an option stores `string[]`); `command` only where resolved; `text` only after a word; `help` only on the two help arms — `run` and `parse-error` never carry it. The loop never interprets values beyond this shape.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: Every `argv` accepted by the grammar parses; every `argv` rejected by the grammar fails with the named error plus the relevant help block.
+- **SC-001**: Every `argv` accepted by the grammar parses; every `argv` rejected by the grammar returns the `parse-error` arm with the named message (entry point appends the relevant help block at print time).
 - **SC-002**: Repeating a flag or a non-repeatable option always fails; repeating a repeatable option keeps all values in order.
 - **SC-003**: `--help` / `-h` works for zero and for every command without being declared in any `defs`; `--help=x` and `--no-help` always fail.
 
