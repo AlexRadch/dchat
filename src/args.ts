@@ -1,15 +1,12 @@
 // Shared CLI shape (spec 002): Flag / Option / ArgDef / Command, single-scan parser.
 // --help / -h is a loop rule, never declared in any defs list.
 // scanArgv is standalone: testable on fake defs, independent of any command.
+// Scan only: names, defs, values, chunks. Help texts and execution live above (see spec 002 Scope).
 // The largest params count any command accepts. Doubles as the infinity
 // marker: maxParams >= MAX_PARAMS means "no upper bound" (unbounded arity).
 // A plain integer, not Infinity — it fits every language's int type
 // (1024 argv entries never happen in practice).
 export const MAX_PARAMS = 1024;
-
-// Single named map for every flag state and option value, declared once
-// and used by every result arm: flags store booleans, options store arrays.
-export type ArgValues = Record<string, boolean | string[]>;
 
 export interface Flag {
 	name: string;
@@ -36,9 +33,9 @@ export interface Command {
 	maxParams: number;
 }
 
-// NOTE: execution (`run`) and help texts live above the scan, in the entry
-// point and command modules — never here. The scan only resolves names,
-// defs, options and param chunks (joining them is the command's job).
+// Single named map for every flag state and option value, declared once
+// and used by every result arm: flags store booleans, options store arrays.
+export type ArgValues = Record<string, boolean | string[]>;
 
 export interface GeneralHelpPayload {
 	argValues: ArgValues;
