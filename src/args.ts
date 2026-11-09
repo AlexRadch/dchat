@@ -26,12 +26,34 @@ export interface RunCommand extends Command {
 	run: (options: Record<string, boolean | string[]>, text?: string) => void | Promise<void>;
 }
 
-export interface ScanResult {
+export interface GeneralHelpPayload {
+	options: Record<string, boolean | string[]>;
+	help: string;
+}
+
+export interface CommandHelpPayload {
+	command: Command;
+	options: Record<string, boolean | string[]>;
+	text?: string;
+	help: string;
+}
+
+export interface RunPayload {
 	command?: Command;
 	options: Record<string, boolean | string[]>;
 	text?: string;
-	help?: string;
 }
+
+// Discriminated union per ADR-003: the tag lives on the arms, the payloads
+// stay clean (a payload knows nothing about the unions it joins). Bare
+// `help?` on an unstaged result made no sense — now the arm tells it.
+// Declared with interfaces (plain structural shapes, erased at runtime —
+// the C# record equivalent, not class: nothing to construct or extend,
+// the `kind` string already discriminates).
+export type ScanResult =
+	| { kind: "general-help"; result: GeneralHelpPayload }
+	| { kind: "command-help"; result: CommandHelpPayload }
+	| { kind: "run"; result: RunPayload };
 
 export class ParseError extends Error {
 	exitCode: 1 | 2;
@@ -85,7 +107,8 @@ function findExact(active: Def[], token: string): Def | undefined {
 	return active.find((d) => token === d.def.name || (d.def.alias !== "" && token === d.def.alias));
 }
 
-// Single left-to-right scan. Help short-circuit returns { help }.
+// Single left-to-right scan. Help is remembered, not terminal: the scan keeps
+// going so later tokens may still fail (an error always beats help).
 // Any other decisive token throws ParseError carrying its help block.
 export function scanArgv(
 	argv: string[],
@@ -102,6 +125,7 @@ export function scanArgv(
 	const counts = new Map<Def, number>();
 	const texts: string[] = [];
 	let endOfOptions = false;
+	let helpSeen = false;
 
 	const active = (): Def[] =>
 		dedupRefs(command ? [...globals, ...command.defs] : globals);
@@ -122,8 +146,11 @@ export function scanArgv(
 	while (i < argv.length) {
 		const t = argv[i];
 		if (!endOfOptions && (t === "--help" || t === "-h")) {
-			const text = texts.length > 0 ? texts.join(" ") : undefined;
-			return { command, options, text, help: helpFor() };
+			// Help needs no counts entry: repeating the same help flag is
+			// harmless — it returns the same block, so it never too-manys.
+			helpSeen = true;
+			i++;
+			continue;
 		}
 		if (!endOfOptions && (t.startsWith("--help=") || t.startsWith("-h="))) {
 			throw new ParseError("Unexpected value for --help.", helpFor(), 2);
@@ -145,7 +172,7 @@ export function scanArgv(
 					continue;
 				}
 				const v = argv[i + 1];
-				if (v === undefined || v === "" || v.startsWith("-")) {
+				if (v === undefined || v === "" || v === "--help" || v === "-h" || (v.startsWith("-") && v !== "--")) {
 					throw new ParseError(`Missing value for ${exact.def.name}.`, helpFor(), 2);
 				}
 				storeOption(exact, v);
@@ -200,9 +227,14 @@ export function scanArgv(
 		texts.push(t);
 		i++;
 	}
-	return {
-		command,
-		options,
-		text: texts.length > 0 ? texts.join(" ") : undefined,
-	};
+	const text = texts.length > 0 ? texts.join(" ") : undefined;
+	if (helpSeen) {
+		// Help selects which block to show, never hides an error (errors throw
+		// above). `-h word` and `word -h` resolve the same: the word is still
+		// scanned, so both land on the identical arm.
+		return command
+			? { kind: "command-help", result: { command, options, text, help: command.help } }
+			: { kind: "general-help", result: { options, help: generalHelp } };
+	}
+	return { kind: "run", result: { command, options, text } };
 }

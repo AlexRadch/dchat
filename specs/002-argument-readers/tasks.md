@@ -1,10 +1,16 @@
-# Tasks: Argument Readers — Grammar Contract, Types, Real Scan
+# Tasks: Argument Readers — ScanResult Union
 
-**Input**: Design documents from `/specs/002-argument-readers/` (`spec.md`, `plan.md`) + `/specs/008-global-args/spec.md`
+**Input**: `spec.md` Union FR (general-help / command-help / run), `plan.md` union design. Follow-up to closed round T001–T004 + T006–T007.
 
-**Prerequisites**: plan.md (required), spec.md (required), 008 spec (required for T002)
+**Prerequisites**: plan.md union section, spec.md FR-003/005/007 + Key Entities union.
 
-**Tests**: Constitution III — `tests/scanArgv.test.ts` drives the real loop on fake defs; `npm test` + `npm run typecheck` green before review.
+**Tests**: Union arms on fake defs; old short-circuit asserts replaced by arm asserts.
+
+## Phase 3: ScanResult union (help remembered, not terminal)
+
+- [x] T008 `src/args.ts`: `ScanResult = GeneralHelp | CommandHelp | Run` (three `interface`s + union); scan remembers help and continues; `-h` repeat exempt from too-many (no `counts` entry); entry point `chat.ts` switches on `kind`.
+- [x] T009 `tests/scanArgv.test.ts`: general-help carries parsed globals (`--provider faux --help` → block + `options`); `-h fake` ≡ `fake -h` identical arm; help-vs-error either order (error wins; if clean, `command-help` carries parsed `options`+`text`); `run` arm carries `command?`/`options`/`text?`, never `help`.
+- [x] T010 Verify: `npm test` + `npm run typecheck` green; live `--help`, `ask -h` (no commands: unknown-command path), empty `argv`.
 
 ## Phase 1: Types + globals + real loop
 

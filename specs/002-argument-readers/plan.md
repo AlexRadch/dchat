@@ -34,7 +34,7 @@ Build the shared Flag/Option/Def/Command types in `src/args.ts`, the global args
 
 - I. English-Only: all new code, comments, tests, spec artifacts in English. PASS.
 - II. Spec-Driven: spec `002-argument-readers` rewritten (grammar is the contract; Flag/Option/Def/Command types); globals in spec 008; plan + tasks before code; short path (clarify/checklist/analyze skipped — mechanics agreed directly, no open questions). PASS.
-- III. Test-First: `tests/scanArgv.test.ts` drives the real loop on fake defs (flags/options, aliases, repeatable, `--no-`, `=`/glued forms, `--`, help, errors); `npm test` + `npm run typecheck` green before review. PASS (planned).
+- III. Test-First: `tests/scanArgv.test.ts` drives the real loop on fake defs (flags/options, aliases, repeatable, `--no-`, `=`/glued forms, `--`, union arms incl. `-h` before/after word, help-vs-error either order); `npm test` + `npm run typecheck` green before review. PASS (planned).
 - IV. Simplicity/CLI: one types file + one globals file + one loop, no new deps/config/processes; ask execution parked (commented, not deleted); stdout/stderr/exit contract for help unchanged. PASS.
 - V. Secrets: key resolution untouched (`keys.ts` as-is); tests use plain strings, never real keys. PASS.
 
@@ -46,7 +46,7 @@ Build the shared Flag/Option/Def/Command types in `src/args.ts`, the global args
 - `Option = { name: string; alias: string; repeatable: boolean }` — exactly one value per occurrence.
 - `Def = { kind: "flag"; def: Flag } | { kind: "option"; def: Option }` — `kind` lives only in the wrapper; types stay clean.
 - `Command = { name: string; defs: Def[]; help: string }` — word + own defs + verbatim help block.
-- Parse result: `options: Record<string, boolean | string[]>` — flag → `boolean`, option → `string[]` (single-shot one element, repeatable accumulates).
+- Parse result: discriminated union `ScanResult = GeneralHelp | CommandHelp | Run` — `general-help` (`{ kind; options; help }`, seen before any word), `command-help` (`{ kind; command; options; text?; help }`, command known), `run` (`{ kind; command?; options; text? }`, no help requested — handler runs). The differing first two are help results, not sections of a flat record: help is remembered while the scan continues, so `-h ask` and `ask -h` return the same block. A bare `help?: string` on an unstaged result made no sense — exactly which kind you get is now on the wire. Each arm carries only what it needs (`options` everywhere; `command` only where resolved; `text` only after a word; `help` only on the help arms — `run` never carries it). Declared with `interface`s (plain structural shapes, erased at runtime — the C# `record` equivalent, not `class`: no behaviour or identity travels, the `kind` string already discriminates).
 - Globals: `GLOBAL_ARGS: Def[]` in `src/globalArgs.ts` (spec 008) — fed to the scan before any command word.
 - Command registrations reference shared definitions, never copy them.
 
@@ -58,10 +58,10 @@ Build the shared Flag/Option/Def/Command types in `src/args.ts`, the global args
 ### Entry point loop (`src/args.ts` — real scan, this plan)
 
 - One left-to-right pass over `argv`, fed `globals: Def[]` + `commands: Command[]`. Before any command word ONLY globals (+ help rule) are valid; after the word, that command's `defs` (+ globals) plus plains.
-- `--help` / `-h` stops the scan immediately → `{ help }` (general or command block); after bare `--` it is plain text. `--help=x` → unexpected-value; `--no-help` → unknown-option.
-- Flag: zero values, `=` always error, second occurrence → too-many. `--no-<name>` is a separate spelled flag writing `false`.
-- Option: exactly one value (apart / `--o=v` / `-ovalue`); `-o=value` is an error; missing/empty/`-`-next → missing-value. `repeatable: false` second occurrence → too-many; `true` accumulates in order.
-- Result: `options: Record<string, boolean | string[]>` (flag → boolean, option → string array), `text` = joined plains, or `help`.
+- `--help` / `-h` is remembered, not terminal: already-parsed `options`/`text` and any resolved command are kept, the scan continues — later tokens may still fail (an error always beats help). After bare `--` it is plain text. `--help=x` → unexpected-value; `--no-help` → unknown-option. `-h ask` ≡ `ask -h` → same `command-help`.
+- Flag: zero values, `=` always error, second occurrence → too-many (`-h` repeat harmless — help needs no `counts` entry). `--no-<name>` is a separate spelled flag writing `false` to the same key.
+- Option: exactly one value (apart / `--o=v` / `-ovalue`); `-o=value` is an error; missing/empty/`-`-next → missing-value; help beside an option never fills its value slot. `repeatable: false` second occurrence → too-many; `true` accumulates in order.
+- Result arms: `general-help` / `command-help` / `run` as above; the entry point switches on `kind` — help arms print `help` to stdout exit 0, `run` dispatches to the handler.
 - Errors carry the relevant help block + exit code (unknown command → 1, rest → 2); empty `argv` → general help on stderr, exit 2 (entry point).
 
 ### What stays parked (commented, not deleted)
@@ -93,7 +93,7 @@ src/
 └── fauxProvider.ts       # unchanged
 
 tests/
-├── scanArgv.test.ts      # NEW: real loop on fake defs (flags/options/aliases/repeat/no-/glued/--/help/errors)
+├── scanArgv.test.ts      # NEW: real loop on fake defs incl. union arms (-h before/after word, help-vs-error)
 ├── keys.test.ts          # unchanged
 └── providers.test.ts     # unchanged
 ```

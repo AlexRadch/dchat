@@ -24,8 +24,8 @@ async function main(): Promise<void> {
 	}
 	try {
 		const result = scanArgv(argv, GLOBAL_ARGS, [], GENERAL_HELP);
-		if (result.help !== undefined) {
-			console.log(result.help);
+		if (result.kind === "general-help" || result.kind === "command-help") {
+			console.log(result.result.help);
 			return;
 		}
 		console.error(GENERAL_HELP);

@@ -64,16 +64,18 @@ A user repeats a flag or a single-shot option and gets a loud error. A repeatabl
 
 **Acceptance Scenarios**:
 
-1. **Given** no command word yet, **When** `--help` appears, **Then** general help prints to stdout, exit 0.
-2. **Given** command `ask` already seen, **When** `--help` appears, **Then** the `ask` block prints verbatim to stdout, exit 0.
-3. **Given** `--help=x` or `--no-help`, **When** scanned, **Then** it fails as an option error (help takes no value, `--no-help` is unknown).
+1. **Given** no command word on the line, **When** `--help` appears, **Then** a `general-help` is returned — the general block plus the already-parsed global `options`; entry point prints to stdout, exit 0.
+2. **Given** command `ask` already seen, **When** `--help` appears, **Then** a `command-help` for `ask` is returned (its block + that command + parsed `options`/`text`); entry point prints to stdout, exit 0.
+3. **Given** `-h ask` or `ask -h`, **When** scanned, **Then** both return the identical `command-help` for `ask` — the help flag does not stop the scan, the word still resolves.
+4. **Given** `--help=x` or `--no-help`, **When** scanned, **Then** it fails as an option error (help takes no value, `--no-help` is unknown).
+5. **Given** `--help` plus an erroneous token in either order, **When** scanned, **Then** the error wins — help selects *which* block to show, it never hides a parse error.
 
 ---
 
 ### Edge Cases
 
 - Detaching a definition (removing it from the command's `defs`) removes its spellings: former spellings fail as unknown-option, its help lines vanish from that command's verbatim block.
-- `dchat --help ask` (help flag followed by a word) is NOT a supported form: `--help` stops the scan and prints immediately, `ask` is never read.
+- `dchat --help ask` and `dchat ask --help` return the same `command-help`: help is remembered, not terminal — the word still resolves, an error still beats help.
 
 ## Requirements *(mandatory)*
 
@@ -81,12 +83,12 @@ A user repeats a flag or a single-shot option and gets a loud error. A repeatabl
 
 - **FR-001**: The entry point runs one left-to-right scan over `argv`. It is fed the global args (spec 008) plus the command table (`Command[]`); there is no other shared state. No parsing lives in handlers. Before any command word ONLY globals are accepted — their shape is known upfront, so `-f` before a command is decided by the global table alone, never guessed. A command-owned spelling before its command word fails immediately (unknown or misplaced), it is never buffered for later.
 - **FR-002**: Each definition owns its spellings: one long form plus exactly one short alias (`--option` / `-o`). Commands have no aliases. Within one command, no two defs may claim the same spelling.
-- **FR-003**: A `Flag` takes zero values. Any `=` on a flag (`--flag=x`, `-f=x`) is an error. A `Flag` MUST NOT repeat: the second occurrence fails as too-many. `--no-<name>` is a separate spelled flag that turns the feature off; short flags have no negated form.
+- **FR-003**: A `Flag` takes zero values. Any `=` on a flag (`--flag=x`, `-f=x`) is an error. A `Flag` MUST NOT repeat: the second occurrence fails as too-many. `--no-<name>` is a separate spelled flag that turns the feature off; short flags have no negated form. One exception: `-h` / `--help` repeat is harmless — help needs no `counts` entry because returning the same help block twice changes nothing.
 - **FR-004**: An `Option` takes exactly one value, written either apart (`--option value`, `-o value`) or glued (`--option=value`, `-ovalue` in one argv element). A missing value (end of input, next token starts with `-`, empty `=` suffix) fails as missing-value. `-o=value` is NOT a glued form — it is an error.
-- **FR-005**: An `Option` declares `repeatable: boolean`. A second occurrence with `repeatable: false` fails as too-many. With `repeatable: true` values accumulate in order.
+- **FR-005**: An `Option` declares `repeatable: boolean`. A second occurrence with `repeatable: false` fails as too-many. With `repeatable: true` values accumulate in order. Help contributes no value — `-h` beside an option never fills or fools the value slot.
 - **FR-005b**: A command-owned spelling appearing BEFORE its command word fails immediately — it is never buffered and never re-checked later. The only tokens valid before a command word are globals (spec 008) and the `--help` loop rule. So `dchat --provider faux ask` fails at `--provider` even if `ask` owns it — command defs activate only after their word.
 - **FR-006**: The scan hands each command's handler finished data only: flag states, option values (raw strings, exactly as typed), and the joined `text`. The handler converts types and reports its own type errors; the loop never interprets values.
-- **FR-007**: `--help` / `-h` is a loop rule, not a definition. It is valid before any command and after a command word, stops the scan immediately, prints to stdout, exit 0, handler never called. `--help=x` fails as unexpected-value; `--no-help` fails as unknown-option. After a bare `--`, `--help` is plain text and does NOT trigger help.
+- **FR-007**: `--help` / `-h` is a loop rule, not a definition. It is valid before any command and after a command word: it is remembered (not returned yet), already-parsed `options`/`text` and any resolved command are kept, the scan keeps going — later tokens may still fail (an error always beats help). After `--`, `--help` is plain text. `--help=x` fails as unexpected-value; `--no-help` fails as unknown-option. `-h ask` and `ask -h` behave identically — both resolve `ask` and return the same `command-help` — because the word is still scanned in either order.
 - **FR-008**: A bare `--` ends option processing: it is consumed, everything after it is `any-plain` text, even tokens starting with `-`.
 - **FR-009**: Detaching a definition (removing it from the command's defs) removes its spellings: former spellings fail as unknown-option and its lines vanish from that command's verbatim help block.
 - **FR-010**: Every parse error prints the relevant help block after the error line on stderr (general help if no command word known yet, that command's verbatim block otherwise). Unknown command exits 1; all other parse errors exit 2. Empty `argv` prints general help on stderr, exit 2, without scanning.
@@ -96,7 +98,7 @@ A user repeats a flag or a single-shot option and gets a loud error. A repeatabl
 - **Flag**: `{ name: "--flag"; alias: "-f" }` — zero values, never repeats, `=` always an error. The `--no-<name>` off-form is a second `Flag` entry, never automatic.
 - **Option**: `{ name: "--option"; alias: "-o"; repeatable: boolean }` — exactly one raw-string value per occurrence; `repeatable: true` accumulates, `false` rejects the second occurrence.
 - **Command**: `{ name: string; defs: Def[]; help: string }` — the word, its own defs (references to shared definitions where shapes match), and its complete ready-to-print help block. `Def = { kind: "flag"; def: Flag } | { kind: "option"; def: Option }` — `kind` lives only where the two are mixed, the types themselves stay clean.
-- **Parse result**: one map `options: Record<string, boolean | string[]>` — a flag stores `boolean` (`true` set, `false` via its `--no-` form), an option stores `string[]` (single-shot holds one element, `repeatable: true` accumulates in order) — plus the joined `text`, or `help` on short-circuit. The loop never interprets values beyond this shape.
+- **Parse result**: a discriminated union of three shapes — `general-help` (`{ kind: "general-help"; options; help }`, seen before any command word), `command-help` (`{ kind: "command-help"; command; options; text?; help }`, command known), or `run` (`{ kind: "run"; command?; options; text? }`, no help requested — handler runs). The differing first two are help results: help does not stop at its own token, it is remembered and the scan continues, so `-h ask` and `ask -h` return the same block. A bare `help?: string` on an unstaged result made no sense — exactly which kind you get is now on the wire. Each arm carries only what it needs: `options` everywhere (a flag stores `boolean`, an option stores `string[]`); `command` only where resolved; `text` only after a word; `help` only on the two help arms — `run` never carries it. The loop never interprets values beyond this shape.
 
 ## Success Criteria *(mandatory)*
 
@@ -107,6 +109,8 @@ A user repeats a flag or a single-shot option and gets a loud error. A repeatabl
 - **SC-003**: `--help` / `-h` works for zero and for every command without being declared in any `defs`; `--help=x` and `--no-help` always fail.
 
 ## Assumptions
+
+- `interface` vs `class`/`record`: three plain shapes are enough — the scan builds a value and the entry point reads it once, no behaviour or identity travels with it. So the result is declared with TypeScript `interface`s (structural object shapes, erased at runtime), not classes: there is nothing to construct, extend, or `instanceof`-check — the `kind` string field already tells the cases apart. A C# `record` maps to this, not to a TS `class`.
 
 - One command = one handler function; file layout is an implementation detail.
 - `ask` and its `--provider` / `--key` / `--model` defs arrive with the ask-command spec, not here; until then the command table may be empty.
