@@ -6,6 +6,18 @@
 
 **Tests**: Union arms on fake defs; old short-circuit asserts replaced by arm asserts.
 
+## Phase 14: WithoutCommand loses params (values only)
+
+- [x] T045 Spec 002 (outcomes table: `without-command` carries values only; Story 4, FR-010, SC-004), plan (success shapes above).
+- [x] T046 `src/args.ts`: `WithoutCommand` drops `params`; the scan returns `{ argValues }`; `src/chat.ts` emptiness check reads `argValues` only.
+- [x] T047 `tests/scanArgv.test.ts`: drop `params` asserts on `without-command` arms; verify: `npm test` + `npm run typecheck` green.
+
+## Phase 13: WithCommand / WithoutCommand + FailureOutcome base
+
+- [x] T042 `src/args.ts`: `RunPayload` → `WithCommand`, `NoCommandPayload` → `WithoutCommand`; `FailureOutcome { message }` base + `extends` on all seven failure shapes; `ScanSuccess` / `ScanFailure` family aliases; `ScanResult = ScanSuccess | ScanFailure`.
+- [x] T043 `src/chat.ts`, `tests/scanArgv.test.ts` follow the renames (arm tags `"with-command"` / `"without-command"`); failure asserts unchanged (fields already exact).
+- [x] T044 Spec 002 (names in outcomes table), plan (Types section above); verify: `npm test` + `npm run typecheck` green.
+
 ## Phase 12: named failure outcomes (no exit codes in scan)
 
 - [x] T038 `src/args.ts`: `ParseErrorPayload` + `exitCode` removed; seven failure arms with exact fields per plan table; `fail()` replaced by per-shape constructors; entry mapping untouched yet (still reads arms, exit codes hardcoded at call sites — full entry-point remap lands in T039).

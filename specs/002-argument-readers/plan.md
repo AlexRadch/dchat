@@ -34,7 +34,7 @@ Build the shared Flag/Option/ArgDef/Command types in `src/args.ts`, the general 
 
 - I. English-Only: all new code, comments, tests, spec artifacts in English. PASS.
 - **II. Spec-Driven**: spec `002-argument-readers` rewritten (grammar is the contract; Flag/Option/ArgDef/Command types); generals in spec 008; plan + tasks before code; short path (clarify/checklist/analyze skipped — mechanics agreed directly, no open questions). PASS.
-- **III. Test-First**: `tests/scanArgv.test.ts` drives the real loop on fake defs (flags/options, aliases, repeatable, `--no-`, `=`/glued forms, `--`, help as ordinary global flag, three arms, help-flag-vs-error either order as `parse-error`, direct arm asserts, no help text anywhere); `npm test` + `npm run typecheck` green before review. PASS (planned).
+- **III. Test-First**: `tests/scanArgv.test.ts` drives the real loop on fake defs (flags/options, aliases, repeatable, `--no-`, `=`/glued forms, `--`, help as ordinary global flag, nine arms, help-flag-vs-error either order as named arms, direct arm asserts, no help text anywhere); `npm test` + `npm run typecheck` green before review. PASS (planned).
 - IV. Simplicity/CLI: one types file + one globals file + one loop, no new deps/config/processes; ask execution parked (commented, not deleted); stdout/stderr/exit contract for help unchanged. PASS.
 - V. Secrets: key resolution untouched (`keys.ts` as-is); tests use plain strings, never real keys. PASS.
 
@@ -49,20 +49,22 @@ Language shapes live HERE, not in the spec. The spec's outcomes table maps to ar
 - Values map (declared once, used by every success arm): `ArgValues = Record<string, boolean | string[]>` — flags store booleans under their long name, options store string arrays.
 - Arity marker (plain integer, no `Infinity`): `MAX_PARAMS = 1024`; `max >= MAX_PARAMS` means unbounded on the upper side.
 - Command: `{ name; defs: ArgDef[]; minParams; maxParams }` (`0 <= min <= max`, integers; scan-scoped: no help text, no execution).
-- Success arms: `run { command; argValues: ArgValues; params: string[] }` (word required), `no-command { argValues: ArgValues; params: string[] }` (facts only).
+- Success shapes: `WithCommand { command; argValues: ArgValues; params: string[] }` (word required, chunks live here only), `WithoutCommand { argValues: ArgValues }` (values only — chunks cannot exist without a word: the first plain token either becomes the word or fails as unknown-word). One shared base is pointless here — the two shapes share no field except meaning, and forcing one would lie.
 - One failure arm per outcomes-table row, each with its own `kind` and exact fields (message on every failure arm; `command?` only where the word may already exist — never on unknown-word, always on arity arms):
 
 | `kind` | fields |
 |---|---|
-| `unknown-command` | `message; word` |
-| `unknown-option` | `message; token; command?` |
-| `missing-value` | `message; option; command?` |
-| `unexpected-value` | `message; flag; command?` |
-| `too-many` | `message; name; command?` |
-| `too-few-params` | `message; command; got` |
-| `too-many-params` | `message; command; got` |
+| `unknown-command` (`UnknownCommand`) | `message; word` |
+| `unknown-option` (`UnknownOption`) | `message; token; command?` |
+| `missing-value` (`MissingValue`) | `message; option; command?` |
+| `unexpected-value` (`UnexpectedValue`) | `message; flag; command?` |
+| `too-many` (`TooMany`) | `message; name; command?` |
+| `too-few-params` (`TooFewParams`) | `message; command; got` |
+| `too-many-params` (`TooManyParams`) | `message; command; got` |
 
-- `ScanResult = run | no-command | unknown-command | unknown-option | missing-value | unexpected-value | too-many | too-few-params | too-many-params` (nine arms, tag on each).
+- Failure base (the iron rule): `interface FailureOutcome { message: string }` — every one of the seven failure shapes `extends` it. A new failure shape without a diagnosis does not compile. Success shapes stay independent — they share no field.
+- Family aliases (for the reader, not the compiler): `ScanSuccess = WithCommand | WithoutCommand`, `ScanFailure = the seven`. They document intent — dispatch still switches on `kind`.
+- `ScanResult = ScanSuccess | ScanFailure` (nine arms, tag on each).
 - Entry: `scanArgv(argv: string[], generals: GeneralArgDef[], commands: Command[])`. Registration clashes (same spelling, two different objects outside the command's own spellings) and bad arity shapes throw plain `Error`s (programmer bugs, ADR-004).
 - Command registrations reference shared general entries, never copy them.
 
@@ -77,7 +79,7 @@ Language shapes live HERE, not in the spec. The spec's outcomes table maps to ar
 - No hard-coded spellings: every dash-token resolves through the visible defs; `--help` is a plain flag entry. A set flag never fills an option's value slot. After bare `--` everything is text. `-h ask` ≡ `ask -h` → same arm (flag carries through either order).
 - Flag: zero values, `=` always error, second occurrence → too-many. `--no-<name>` is a separate spelled flag writing `false` to the same key.
 - Option: exactly one value (apart / `--o=v` / `-ovalue`); `-o=value` is an error; missing/empty/`-`-next → missing-value; a set flag never fills its value slot. `repeatable: false` second occurrence → too-many; `true` accumulates in order.
-- Result arms: two successes + seven named failures as above (no help text in any arm, no exit codes in the scan at all); the entry point switches on `kind` — success arms first check the help flag (set → block stdout exit 0, handler never called), else success-with-command dispatches to the handler, success-without-command decides by facts (present → `No command.` + block stderr exit 2; empty → block stdout exit 0), every failure arm prints `message + "\n\n" + block` on stderr with exit 2 (one mapping, block restored from the resolved command or the general block). Arity checked on the success-with-command path, always — no flag skips it. No `try/catch` for the normal path (ADR-004); exceptions stay for the unexpected only.
+- Result arms: two successes + seven named failures as above (no help text in any arm, no exit codes in the scan at all); the entry point switches on `kind` — success arms first check the help flag (set → block stdout exit 0, handler never called), else `with-command` dispatches to the handler, `without-command` decides by values (present → `No command.` + block stderr exit 2; empty → block stdout exit 0), every failure arm prints `message + "\n\n" + block` on stderr with exit 2 (one mapping, block restored from the resolved command or the general block). Arity checked on the success-with-command path, always — no flag skips it. No `try/catch` for the normal path (ADR-004); exceptions stay for the unexpected only.
 - All failure arms carry the diagnosis line; `command?` travels only where the word may already exist; exit codes live in exactly one place — the entry point.
 
 ### What stays parked (commented, not deleted)

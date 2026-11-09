@@ -2,7 +2,7 @@
 // Ask execution is PARKED (commented, not deleted) until the ask command spec
 // re-enables it. Until then the command table holds no enabled commands:
 // any command word fails as unknown, only global --help works.
-import { scanArgv, type Command, type ArgValues, type RunPayload } from "./args.js";
+import { scanArgv, type Command, type ArgValues, type WithCommand } from "./args.js";
 import { GENERAL_ARGS } from "./generalArgs.js";
 
 const GENERAL_HELP = [
@@ -40,12 +40,12 @@ function commandHelp(command: Command): string {
 async function main(): Promise<void> {
 	const argv = process.argv.slice(2);
 	// No pre-scan empty-argv shortcut (spec 002 Story 4): empty input scans
-	// to no-command with empty facts, the switch below prints help exit 0.
+	// to without-command with empty values, the switch below prints help exit 0.
 	try {
 		const result = scanArgv(argv, GENERAL_ARGS, []);
 		switch (result.kind) {
-			case "run": {
-				const payload: RunPayload = result.result;
+			case "with-command": {
+				const payload: WithCommand = result.result;
 				// Help flag first: set → block stdout exit 0, handler never called.
 				if (hasHelpFlag(payload.argValues)) {
 					console.log(commandHelp(payload.command));
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
 				process.exitCode = 2;
 				return;
 			}
-			case "no-command": {
+			case "without-command": {
 				const facts = result.result;
 				// Help flag first: set → general block stdout exit 0.
 				if (hasHelpFlag(facts.argValues)) {
@@ -69,8 +69,7 @@ async function main(): Promise<void> {
 				// point owns the meaning: facts present → misplaced content,
 				// error with the general block (exit 2); facts empty → plain
 				// general help on stdout (exit 0).
-				const empty =
-					facts.params.length === 0 && Object.keys(facts.argValues).length === 0;
+				const empty = Object.keys(facts.argValues).length === 0;
 				if (empty) {
 					console.log(GENERAL_HELP);
 					return;
@@ -97,7 +96,7 @@ async function main(): Promise<void> {
 			}
 		}
 	} catch (e) {
-		// Unreachable for expected input failures (they return the parse-error
+		// Unreachable for expected input failures (they return named arms
 		// arm per ADR-004). Only programmer bugs (duplicate registration) land
 		// here, as plain Errors.
 		console.error(e instanceof Error ? e.message : String(e));

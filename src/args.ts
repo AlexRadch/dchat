@@ -51,54 +51,52 @@ export interface Command {
 // and used by every result arm: flags store booleans, options store arrays.
 export type ArgValues = Record<string, boolean | string[]>;
 
-export interface NoCommandPayload {
+export interface WithoutCommand {
 	argValues: ArgValues;
-	params: string[];
 }
 
-export interface RunPayload {
+export interface WithCommand {
 	command: Command;
 	argValues: ArgValues;
 	params: string[];
 }
 
-export interface UnknownCommandOutcome {
+// The iron rule: every failure carries a diagnosis. A new failure shape
+// without message does not compile — extends enforces it, union cannot.
+export interface FailureOutcome {
 	message: string;
+}
+
+export interface UnknownCommand extends FailureOutcome {
 	word: string;
 }
 
-export interface UnknownOptionOutcome {
-	message: string;
+export interface UnknownOption extends FailureOutcome {
 	token: string;
 	command?: Command;
 }
 
-export interface MissingValueOutcome {
-	message: string;
+export interface MissingValue extends FailureOutcome {
 	option: string;
 	command?: Command;
 }
 
-export interface UnexpectedValueOutcome {
-	message: string;
+export interface UnexpectedValue extends FailureOutcome {
 	flag: string;
 	command?: Command;
 }
 
-export interface TooManyOutcome {
-	message: string;
+export interface TooMany extends FailureOutcome {
 	name: string;
 	command?: Command;
 }
 
-export interface TooFewParamsOutcome {
-	message: string;
+export interface TooFewParams extends FailureOutcome {
 	command: Command;
 	got: number;
 }
 
-export interface TooManyParamsOutcome {
-	message: string;
+export interface TooManyParams extends FailureOutcome {
 	command: Command;
 	got: number;
 }
@@ -109,20 +107,22 @@ export interface TooManyParamsOutcome {
 // the diagnosis; no help text, no exit code — the entry point restores the
 // block and maps every failure to exit 2 itself), never exceptions.
 // A set help flag is NOT a scan outcome: it rides inside argValues of the
-// normal arm (run / no-command) and the entry point reads it first.
+// normal arm (with-command / without-command) and the entry point reads it first.
 // Declared with interfaces (plain structural shapes, erased at runtime —
 // the C# record equivalent, not class: nothing to construct or extend,
 // the `kind` string already discriminates).
-export type ScanResult =
-	| { kind: "run"; result: RunPayload }
-	| { kind: "no-command"; result: NoCommandPayload }
-	| { kind: "unknown-command"; result: UnknownCommandOutcome }
-	| { kind: "unknown-option"; result: UnknownOptionOutcome }
-	| { kind: "missing-value"; result: MissingValueOutcome }
-	| { kind: "unexpected-value"; result: UnexpectedValueOutcome }
-	| { kind: "too-many"; result: TooManyOutcome }
-	| { kind: "too-few-params"; result: TooFewParamsOutcome }
-	| { kind: "too-many-params"; result: TooManyParamsOutcome };
+// Family aliases: intent for the reader. Dispatch still switches on kind;
+// unions cannot enforce "every failure has message" — extends above does.
+export type ScanSuccess = { kind: "with-command"; result: WithCommand } | { kind: "without-command"; result: WithoutCommand };
+export type ScanFailure =
+	| { kind: "unknown-command"; result: UnknownCommand }
+	| { kind: "unknown-option"; result: UnknownOption }
+	| { kind: "missing-value"; result: MissingValue }
+	| { kind: "unexpected-value"; result: UnexpectedValue }
+	| { kind: "too-many"; result: TooMany }
+	| { kind: "too-few-params"; result: TooFewParams }
+	| { kind: "too-many-params"; result: TooManyParams };
+export type ScanResult = ScanSuccess | ScanFailure;
 
 // Registration errors are programmer bugs (ADR-004: truly exceptional —
 // no meaningful value to return), so they stay thrown as plain Errors.
@@ -164,7 +164,7 @@ function assertUnique(active: (ArgDef | GeneralArgDef)[], label: string): void {
 }
 
 // Arity shape is a programmer bug (negative, min > max), so it throws.
-// Bad counts on the line are expected input failures (parse-error arm).
+// Bad counts on the line are expected input failures (named arms).
 function assertArityShape(command: Command): void {
 	const { minParams, maxParams } = command;
 	if (!Number.isInteger(minParams) || !Number.isInteger(maxParams)) {
@@ -365,13 +365,13 @@ export function scanArgv(
 	// No joining here: the scan hands over raw chunks in order; the command
 	// joins them as it needs (ask joins with one space).
 	// A run always carries a command: with no word there is nothing to
-	// dispatch to, so the scan reports facts instead of failing — the entry
-	// point decides (help flag → block; params present → error; empty → help).
-	// No exitCode here: a missing word is a normal outcome, not a failure.
+	// dispatch to, so the scan reports values instead of failing — the entry
+	// point decides (help flag → block; values present → error; empty → help).
+	// No codes here at all: a missing word is a normal outcome, not a failure.
 	if (!command) {
-		return { kind: "no-command", result: { argValues, params: texts } };
+		return { kind: "without-command", result: { argValues } };
 	}
-	// Arity is checked on the run path, always — a set flag changes nothing.
+	// Arity is checked on the with-command path, always — a set flag changes nothing.
 	// A help flag on an arity-1 command fails dumb (too-few-params arm;
 	// the entry point still prints the block after the message).
 	if (texts.length < command.minParams) {
@@ -386,5 +386,5 @@ export function scanArgv(
 			result: { message: `Too many params for ${command.name}.`, command, got: texts.length },
 		};
 	}
-	return { kind: "run", result: { command, argValues, params: texts } };
+	return { kind: "with-command", result: { command, argValues, params: texts } };
 }

@@ -34,13 +34,13 @@ function fakeCmd(defs: ArgDef[] = [flag, noFlag, bareFlag, opt, bareOpt, repeatO
 // ADR-003 + ADR-004: kind lives on the union arm; each expected failure is
 // its own arm with exact fields — no exit codes in the scan, no shared payload.
 // Narrow by kind, read via `.result`.
-function expectRun(r: ScanResult): asserts r is Extract<ScanResult, { kind: "run" }> {
-	assert.equal(r.kind, "run");
+function expectRun(r: ScanResult): asserts r is Extract<ScanResult, { kind: "with-command" }> {
+	assert.equal(r.kind, "with-command");
 }
 
 // ADR-003 + ADR-004: each failure is its own arm with exact fields —
 // no exit codes in the scan, no shared payload. Narrow by kind, read `.result`.
-type FailureKind = Exclude<ScanResult["kind"], "run" | "no-command">;
+type FailureKind = Exclude<ScanResult["kind"], "with-command" | "without-command">;
 
 function expectFailure<K extends FailureKind>(
 	r: ScanResult,
@@ -163,10 +163,10 @@ describe("scan: options", () => {
 	});
 });
 
-describe("scan: run arm (no help requested)", () => {
+describe("scan: with-command arm (no help requested)", () => {
 	it("carries command, options, params — never help", () => {
 		const r = scanArgv(["fake", "--provider", "faux", "hi"], [], [fakeCmd()]);
-		assert.equal(r.kind, "run");
+		assert.equal(r.kind, "with-command");
 		assert.equal(r.result.command.name, "fake");
 		assert.deepEqual(r.result.argValues, { "--provider": ["faux"] });
 		assert.deepEqual(r.result.params, ["hi"]);
@@ -177,10 +177,10 @@ describe("scan: run arm (no help requested)", () => {
 		const g: GeneralArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false, global: true } };
 		const cmd: Command = { name: "other", defs: [], minParams: 0, maxParams: MAX_PARAMS };
 		const r = scanArgv(["--provider", "faux"], [g], [cmd]);
-		assert.equal(r.kind, "no-command");
-		if (r.kind !== "no-command") return;
+		assert.equal(r.kind, "without-command");
+		if (r.kind !== "without-command") return;
 		assert.deepEqual(r.result.argValues, { "--provider": ["faux"] });
-		assert.deepEqual(r.result.params, []);
+		assert.ok(!("params" in r.result));
 		assert.ok(!("exitCode" in r.result));
 	});
 });
@@ -202,7 +202,7 @@ describe("scan: params and --", () => {
 		const r = scanArgv(["fake", "--", "--provider", "--help", "-x"], [], [fakeCmd()]);
 		assert.deepEqual(r.result.params, ["--provider", "--help", "-x"]);
 		assert.deepEqual(r.result.argValues, {});
-		assert.equal(r.kind, "run");
+		assert.equal(r.kind, "with-command");
 	});
 });
 
@@ -238,11 +238,11 @@ describe("scan: help as ordinary global flag", () => {
 		return { name: "fake", defs, minParams: 1, maxParams: MAX_PARAMS };
 	}
 
-	it("help with no word rides no-command, flag set", () => {
+	it("help with no word rides without-command, flag set", () => {
 		const g: GeneralArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false, global: false } };
 		const r = scanArgv(["--provider", "faux", "--help"], [g, help], [helpCmd()]);
-		assert.equal(r.kind, "no-command");
-		if (r.kind !== "no-command") return;
+		assert.equal(r.kind, "without-command");
+		if (r.kind !== "without-command") return;
 		assert.deepEqual(r.result.argValues, { "--provider": ["faux"], "--help": true });
 	});
 
@@ -250,17 +250,17 @@ describe("scan: help as ordinary global flag", () => {
 		const zero: Command = { name: "fake", defs: [help], minParams: 0, maxParams: MAX_PARAMS };
 		const a = scanArgv(["-h", "fake"], [help], [zero]);
 		const b = scanArgv(["fake", "-h"], [help], [zero]);
-		assert.equal(a.kind, "run");
-		assert.equal(b.kind, "run");
-		if (a.kind !== "run" || b.kind !== "run") return;
+		assert.equal(a.kind, "with-command");
+		assert.equal(b.kind, "with-command");
+		if (a.kind !== "with-command" || b.kind !== "with-command") return;
 		assert.deepEqual(a.result.argValues, { "--help": true });
 		assert.deepEqual(a.result, b.result);
 	});
 
 	it("run with help flag carries parsed values and params", () => {
 		const r = scanArgv(["fake", "--provider", "faux", "hi", "-h"], [help], [helpCmd([opt, help])]);
-		assert.equal(r.kind, "run");
-		if (r.kind !== "run") return;
+		assert.equal(r.kind, "with-command");
+		if (r.kind !== "with-command") return;
 		assert.equal(r.result.command.name, "fake");
 		assert.deepEqual(r.result.argValues, { "--provider": ["faux"], "--help": true });
 		assert.deepEqual(r.result.params, ["hi"]);
@@ -331,7 +331,7 @@ describe("scan: help as ordinary global flag", () => {
 		const multi: GeneralArgDef = { kind: "option", def: { name: "--tag", alias: "-t", repeatable: true, global: true } };
 		const single: GeneralArgDef = { kind: "option", def: { name: "--tag", alias: "-t", repeatable: false, global: false } };
 		const r = scanArgv(["--tag", "a", "fake"], [multi], [{ name: "fake", defs: [single], minParams: 0, maxParams: MAX_PARAMS }]);
-		assert.equal(r.kind, "run");
+		assert.equal(r.kind, "with-command");
 	});
 
 	it("set flag does NOT skip arity: help on arity-1 fails as Too few params", () => {
@@ -369,10 +369,10 @@ describe("scan: errors carry the relevant help", () => {
 describe("scan: empty argv", () => {
 	it("empty argv with no word reports empty facts", () => {
 		const r = scanArgv([], [], [fakeCmd()]);
-		assert.equal(r.kind, "no-command");
-		if (r.kind !== "no-command") return;
+		assert.equal(r.kind, "without-command");
+		if (r.kind !== "without-command") return;
 		assert.deepEqual(r.result.argValues, {});
-		assert.deepEqual(r.result.params, []);
+		assert.ok(!("params" in r.result));
 	});
 });
 
@@ -383,7 +383,7 @@ describe("scan: arity", () => {
 
 	it("run inside arity passes", () => {
 		const r = scanArgv(["fake", "a", "b"], [], [arityCmd(1, 2)]);
-		assert.equal(r.kind, "run");
+		assert.equal(r.kind, "with-command");
 	});
 
 	it("too few params fails as too-few-params with got count", () => {
@@ -407,12 +407,12 @@ describe("scan: arity", () => {
 	it("maxParams >= MAX_PARAMS means unbounded", () => {
 		const chunks = Array.from({ length: 2000 }, (_, k) => `p${k}`);
 		const r = scanArgv(["fake", ...chunks], [], [arityCmd(0, MAX_PARAMS)]);
-		assert.equal(r.kind, "run");
+		assert.equal(r.kind, "with-command");
 	});
 
 	it("min 0 allows empty params", () => {
 		const r = scanArgv(["fake"], [], [arityCmd(0, MAX_PARAMS)]);
-		assert.equal(r.kind, "run");
+		assert.equal(r.kind, "with-command");
 	});
 
 	it("help flag on arity-1 command fails dumb (no privilege)", () => {
