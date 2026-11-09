@@ -31,22 +31,26 @@ function fakeCmd(defs: ArgDef[] = [flag, noFlag, bareFlag, opt, bareOpt, repeatO
 	return { name: "fake", defs, minParams: 0, maxParams: MAX_PARAMS };
 }
 
-// ADR-003 + ADR-004: kind lives on the union arm; expected failures return
-// the parse-error arm, never throw. Narrow by kind, read via `.result`.
+// ADR-003 + ADR-004: kind lives on the union arm; each expected failure is
+// its own arm with exact fields — no exit codes in the scan, no shared payload.
+// Narrow by kind, read via `.result`.
 function expectRun(r: ScanResult): asserts r is Extract<ScanResult, { kind: "run" }> {
 	assert.equal(r.kind, "run");
 }
 
-function expectParseError(
+// ADR-003 + ADR-004: each failure is its own arm with exact fields —
+// no exit codes in the scan, no shared payload. Narrow by kind, read `.result`.
+type FailureKind = Exclude<ScanResult["kind"], "run" | "no-command">;
+
+function expectFailure<K extends FailureKind>(
 	r: ScanResult,
-	message: string,
-	exitCode: 1 | 2,
-	commandName?: string,
-): asserts r is Extract<ScanResult, { kind: "parse-error" }> {
-	assert.equal(r.kind, "parse-error");
-	assert.equal(r.result.message, message);
-	assert.equal(r.result.exitCode, exitCode);
-	assert.equal(r.result.command?.name, commandName);
+	kind: K,
+	expected: Record<string, unknown>,
+): asserts r is Extract<ScanResult, { kind: K }> {
+	assert.equal(r.kind, kind);
+	for (const [k, v] of Object.entries(expected)) {
+		assert.deepEqual((r.result as Record<string, unknown>)[k], v);
+	}
 }
 
 describe("scan: flags", () => {
@@ -73,27 +77,29 @@ describe("scan: flags", () => {
 	});
 
 	it("second identical flag fails as too-many", () => {
-		expectParseError(
-			scanArgv(["fake", "--verbose", "--verbose"], [], [fakeCmd()]),
-			"Too many occurrences of --verbose.",
-			2, "fake",
-		);
+		{
+			const r = scanArgv(["fake", "--verbose", "--verbose"], [], [fakeCmd()]);
+			expectFailure(r, "too-many", {
+				message: "Too many occurrences of --verbose.",
+				name: "--verbose",
+			});
+			if (r.kind !== "too-many") return;
+			assert.equal(r.result.command?.name, "fake");
+		}
 	});
 
 	it("flag with = value fails", () => {
-		expectParseError(
-			scanArgv(["fake", "--verbose=x"], [], [fakeCmd()]),
-			"Unexpected value for --verbose.",
-			2, "fake",
-		);
+		expectFailure(scanArgv(["fake", "--verbose=x"], [], [fakeCmd()]), "unexpected-value", {
+			message: "Unexpected value for --verbose.",
+			flag: "--verbose",
+		});
 	});
 
 	it("-V=x fails (alias = form is not glued)", () => {
-		expectParseError(
-			scanArgv(["fake", "-V=x"], [], [fakeCmd()]),
-			"Unexpected value for --verbose.",
-			2, "fake",
-		);
+		expectFailure(scanArgv(["fake", "-V=x"], [], [fakeCmd()]), "unexpected-value", {
+			message: "Unexpected value for --verbose.",
+			flag: "--verbose",
+		});
 	});
 });
 
@@ -121,36 +127,36 @@ describe("scan: options", () => {
 	});
 
 	it("-o=value is an error, not a glued value", () => {
-		expectParseError(
-			scanArgv(["fake", "-p=faux"], [], [fakeCmd()]),
-			"Unexpected value for --provider.",
-			2, "fake",
-		);
+		expectFailure(scanArgv(["fake", "-p=faux"], [], [fakeCmd()]), "unexpected-value", {
+			message: "Unexpected value for --provider.",
+			flag: "--provider",
+		});
 	});
 
 	it("missing value: end, dash-next, empty =", () => {
-		expectParseError(
-			scanArgv(["fake", "--provider"], [], [fakeCmd()]),
-			"Missing value for --provider.",
-			2, "fake",
-		);
-		expectParseError(
-			scanArgv(["fake", "--provider", "--dry"], [], [fakeCmd()]),
-			"Missing value for --provider.",
-			2, "fake",
-		);
-		expectParseError(
-			scanArgv(["fake", "--provider="], [], [fakeCmd()]),
-			"Missing value for --provider.",
-			2, "fake",
-		);
+		expectFailure(scanArgv(["fake", "--provider"], [], [fakeCmd()]), "missing-value", {
+			message: "Missing value for --provider.",
+			option: "--provider",
+		});
+		expectFailure(scanArgv(["fake", "--provider", "--dry"], [], [fakeCmd()]), "missing-value", {
+			message: "Missing value for --provider.",
+			option: "--provider",
+		});
+		expectFailure(scanArgv(["fake", "--provider="], [], [fakeCmd()]), "missing-value", {
+			message: "Missing value for --provider.",
+			option: "--provider",
+		});
 	});
 
 	it("second occurrence of single-shot fails, repeatable accumulates", () => {
-		expectParseError(
+		expectFailure(
 			scanArgv(["fake", "--provider", "a", "--provider", "b"], [], [fakeCmd()]),
-			"Too many occurrences of --provider.",
-			2, "fake",
+			"too-many",
+			{
+				message: "Too many occurrences of --provider.",
+				name: "--provider",
+				command: fakeCmd(),
+			},
 		);
 		const r = scanArgv(["fake", "--tag", "a", "--tag", "b"], [], [fakeCmd()]);
 		assert.deepEqual(r.result.argValues, { "--tag": ["a", "b"] });
@@ -214,11 +220,10 @@ describe("scan: globals before command", () => {
 
 	it("command-owned spelling before its word fails immediately", () => {
 		const cmd: Command = { name: "c", defs: [g], minParams: 0, maxParams: MAX_PARAMS };
-		expectParseError(
-			scanArgv(["--provider", "faux", "c"], [], [cmd]),
-			"Unknown option: --provider.",
-			2,
-		);
+		expectFailure(scanArgv(["--provider", "faux", "c"], [], [cmd]), "unknown-option", {
+			message: "Unknown option: --provider.",
+			token: "--provider",
+		});
 	});
 
 	it("command referencing the same global entry works after the word", () => {
@@ -262,58 +267,63 @@ describe("scan: help as ordinary global flag", () => {
 	});
 
 	it("repeated -h fails as too-many like any flag", () => {
-		expectParseError(
-			scanArgv(["fake", "-h", "-h"], [help], [helpCmd([help])]),
-			"Too many occurrences of --help.",
-			2, "fake",
-		);
+		expectFailure(scanArgv(["fake", "-h", "-h"], [help], [helpCmd([help])]), "too-many", {
+			message: "Too many occurrences of --help.",
+			name: "--help",
+		});
 	});
 
 	it("error beats help flag in either order", () => {
-		expectParseError(
-			scanArgv(["--help", "--bogus"], [help], [helpCmd()]),
-			"Unknown option: --bogus.",
-			2,
-		);
+		expectFailure(scanArgv(["--help", "--bogus"], [help], [helpCmd()]), "unknown-option", {
+			message: "Unknown option: --bogus.",
+			token: "--bogus",
+		});
 	});
 
 	it("help beside an option never fills its value slot", () => {
-		expectParseError(
+		expectFailure(
 			scanArgv(["fake", "--provider", "-h"], [help], [helpCmd([opt, help])]),
-			"Missing value for --provider.",
-			2, "fake",
+			"missing-value",
+			{
+				message: "Missing value for --provider.",
+				option: "--provider",
+				command: helpCmd([opt, help]),
+			},
 		);
 	});
 
 	it("--help=x fails; --no-help unlisted is unknown", () => {
-		expectParseError(
-			scanArgv(["--help=x"], [help], [helpCmd()]),
-			"Unexpected value for --help.",
-			2,
-		);
-		expectParseError(
-			scanArgv(["fake", "--no-help"], [], [helpCmd()]),
-			"Unknown option: --no-help.",
-			2, "fake",
-		);
+		expectFailure(scanArgv(["--help=x"], [help], [helpCmd()]), "unexpected-value", {
+			message: "Unexpected value for --help.",
+			flag: "--help",
+		});
+		expectFailure(scanArgv(["fake", "--no-help"], [], [helpCmd()]), "unknown-option", {
+			message: "Unknown option: --no-help.",
+			token: "--no-help",
+		});
 	});
 
 	it("non-global general invisible after the word", () => {
 		const g: GeneralArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false, global: false } };
-		expectParseError(
-			scanArgv(["fake", "--provider", "faux"], [g], [helpCmd()]),
-			"Unknown option: --provider.",
-			2, "fake",
-		);
+		expectFailure(scanArgv(["fake", "--provider", "faux"], [g], [helpCmd()]), "unknown-option", {
+			message: "Unknown option: --provider.",
+			token: "--provider",
+		});
 	});
 
 	it("re-check on word: multi-use general, single-use command rule fails", () => {
 		const multi: GeneralArgDef = { kind: "option", def: { name: "--tag", alias: "-t", repeatable: true, global: true } };
 		const single: GeneralArgDef = { kind: "option", def: { name: "--tag", alias: "-t", repeatable: false, global: false } };
-		expectParseError(
-			scanArgv(["--tag", "a", "--tag", "b", "fake"], [multi], [{ name: "fake", defs: [single], minParams: 0, maxParams: MAX_PARAMS }]),
-			"Too many occurrences of --tag.",
-			2, "fake",
+		expectFailure(
+			scanArgv(["--tag", "a", "--tag", "b", "fake"], [multi], [
+				{ name: "fake", defs: [single], minParams: 0, maxParams: MAX_PARAMS },
+			]),
+			"too-many",
+			{
+				message: "Too many occurrences of --tag.",
+				name: "--tag",
+				command: { name: "fake", defs: [single], minParams: 0, maxParams: MAX_PARAMS },
+			},
 		);
 	});
 
@@ -326,35 +336,33 @@ describe("scan: help as ordinary global flag", () => {
 
 	it("set flag does NOT skip arity: help on arity-1 fails as Too few params", () => {
 		const r = scanArgv(["fake", "-h"], [help], [helpCmd()]);
-		assert.equal(r.kind, "parse-error");
-		if (r.kind !== "parse-error") return;
+		assert.equal(r.kind, "too-few-params");
+		if (r.kind !== "too-few-params") return;
 		assert.equal(r.result.message, "Too few params for fake.");
+		assert.equal(r.result.got, 0);
 	});
 });
 
 describe("scan: errors carry the relevant help", () => {
 	it("unknown global option carries general help", () => {
-		expectParseError(
-			scanArgv(["--bogus"], [], [fakeCmd()]),
-			"Unknown option: --bogus.",
-			2,
-		);
+		expectFailure(scanArgv(["--bogus"], [], [fakeCmd()]), "unknown-option", {
+			message: "Unknown option: --bogus.",
+			token: "--bogus",
+		});
 	});
 
 	it("unknown command-option carries command help", () => {
-		expectParseError(
-			scanArgv(["fake", "--bogus"], [], [fakeCmd()]),
-			"Unknown option: --bogus.",
-			2, "fake",
-		);
+		expectFailure(scanArgv(["fake", "--bogus"], [], [fakeCmd()]), "unknown-option", {
+			message: "Unknown option: --bogus.",
+			token: "--bogus",
+		});
 	});
 
 	it("unknown command word exits 1 with general help", () => {
-		expectParseError(
-			scanArgv(["badcmd"], [], [fakeCmd()]),
-			"Unknown command: badcmd.",
-			1,
-		);
+		expectFailure(scanArgv(["badcmd"], [], [fakeCmd()]), "unknown-command", {
+			message: "Unknown command: badcmd.",
+			word: "badcmd",
+		});
 	});
 });
 
@@ -378,21 +386,22 @@ describe("scan: arity", () => {
 		assert.equal(r.kind, "run");
 	});
 
-	it("too few params fails as parse-error", () => {
+	it("too few params fails as too-few-params with got count", () => {
 		const r = scanArgv(["fake"], [], [arityCmd(1, 2)]);
-		assert.equal(r.kind, "parse-error");
-		if (r.kind !== "parse-error") return;
+		assert.equal(r.kind, "too-few-params");
+		if (r.kind !== "too-few-params") return;
 		assert.equal(r.result.message, "Too few params for fake.");
-		assert.equal(r.result.exitCode, 2);
-		assert.equal(r.result.command?.name, "fake");
+		assert.equal(r.result.command.name, "fake");
+		assert.equal(r.result.got, 0);
 	});
 
-	it("too many params fails as parse-error", () => {
+	it("too many params fails as too-many-params with got count", () => {
 		const r = scanArgv(["fake", "a", "b", "c"], [], [arityCmd(1, 2)]);
-		assert.equal(r.kind, "parse-error");
-		if (r.kind !== "parse-error") return;
+		assert.equal(r.kind, "too-many-params");
+		if (r.kind !== "too-many-params") return;
 		assert.equal(r.result.message, "Too many params for fake.");
-		assert.equal(r.result.exitCode, 2);
+		assert.equal(r.result.command.name, "fake");
+		assert.equal(r.result.got, 3);
 	});
 
 	it("maxParams >= MAX_PARAMS means unbounded", () => {
@@ -409,8 +418,8 @@ describe("scan: arity", () => {
 	it("help flag on arity-1 command fails dumb (no privilege)", () => {
 		const h: GeneralArgDef = { kind: "flag", def: { name: "--help", alias: "-h", global: true } };
 		const r = scanArgv(["fake", "-h"], [h], [arityCmd(1, 2)]);
-		assert.equal(r.kind, "parse-error");
-		if (r.kind !== "parse-error") return;
+		assert.equal(r.kind, "too-few-params");
+		if (r.kind !== "too-few-params") return;
 		assert.equal(r.result.message, "Too few params for fake.");
 	});
 

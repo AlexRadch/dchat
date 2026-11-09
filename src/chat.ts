@@ -79,10 +79,20 @@ async function main(): Promise<void> {
 				process.exitCode = 2;
 				return;
 			}
-			case "parse-error": {
-				const block = result.result.command ? commandHelp(result.result.command) : GENERAL_HELP;
-				console.error(`${result.result.message}\n\n${block}`);
-				process.exitCode = result.result.exitCode;
+			case "unknown-command":
+			case "unknown-option":
+			case "missing-value":
+			case "unexpected-value":
+			case "too-many":
+			case "too-few-params":
+			case "too-many-params": {
+				// Every scan failure is a usage error: one mapping, exit 2.
+				// The block comes from the resolved command, else the general one.
+				const failed = result.result;
+				const block =
+					"command" in failed && failed.command ? commandHelp(failed.command) : GENERAL_HELP;
+				console.error(`${failed.message}\n\n${block}`);
+				process.exitCode = 2;
 				return;
 			}
 		}

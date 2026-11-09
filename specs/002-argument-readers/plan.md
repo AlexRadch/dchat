@@ -40,30 +40,45 @@ Build the shared Flag/Option/ArgDef/Command types in `src/args.ts`, the general 
 
 ## Design
 
-### Types (`src/args.ts` — this plan)
+### Types (`src/args.ts` — this plan, TS only)
 
-- `Flag = { name: string; alias: string }` — zero values, never repeats.
-- `Option = { name: string; alias: string; repeatable: boolean }` — exactly one value per occurrence.
-- `ArgDef = { kind: "flag"; def: Flag } | { kind: "option"; def: Option }` — plain command-side defs, `kind` lives only in the wrapper; types stay clean. General side extends the members: `GeneralFlag extends Flag { global: boolean }`, `GeneralOption extends Option { global: boolean }`, `GeneralArgDef = { kind: "flag"; def: GeneralFlag } | { kind: "option"; def: GeneralOption }` — `global` exists ONLY on general entries, a command entry cannot carry them even by accident. `global: true` stays visible after a command word; after the word the command's own `defs` are tried first, then `global: true` generals. On word resolve, collected tokens re-check against the command's rule (dumb algorithm: same object is one rule, two objects is two rules, never compared).
-- `Command = { name: string; defs: ArgDef[]; minParams: number; maxParams: number }` — word + own defs + param arity (`0 <= min <= max`, integers; `max >= MAX_PARAMS` means unbounded). Scan-scoped: no `help`, no `run` (Scope).
-- Scan payloads carry `params: string[]` — always an array, possibly empty; the scan never joins chunks, joining is the command's job.
-- Parse result: discriminated union `ScanResult = Run | NoCommand | ParseFailure` — `run` (`{ kind; command; argValues; params }`, command required — with no word the scan returns `no-command` instead, never a command-less `run`), `no-command` (`{ kind; argValues; params }`, facts only, normal outcome, NO message or exit code — the entry point owns the meaning: set help flag → print block exit 0; else facts present → error, empty → help), `parse-error` (`{ kind; message; exitCode; command? }` — expected input failure, no help text; ADR-004, entry point restores the block). `scanArgv(argv, generals: GeneralArgDef[], commands: Command[])` — the marker fields are unreachable on command entries by construction. No help arms: help is a plain general flag (`helpFlag`, `global: true`) carried in `argValues`; the entry point reads the flag first. Each arm carries only what it needs. Declared with `interface`s (plain structural shapes, erased at runtime — the C# `record` equivalent, not `class`: no behaviour or identity travels, the `kind` string already discriminates).
-- Generals: `GENERAL_ARGS: GeneralArgDef[]` in `src/generalArgs.ts` (spec 008) — fed to the scan before any command word; `global: true` entries additionally visible after.
-- Command registrations reference shared definitions, never copy them.
+Language shapes live HERE, not in the spec. The spec's outcomes table maps to arms as follows; `kind` is the arm tag (ADR-003), payloads stay clean.
+
+- Base members (command side, marker-free): `Flag = { name; alias }`, `Option = { name; alias; repeatable }`; `ArgDef = { kind: "flag"; def: Flag } | { kind: "option"; def: Option }`.
+- General heirs (marker side): `GeneralFlag extends Flag { global: boolean }`, `GeneralOption extends Option { global: boolean }`; `GeneralArgDef = { kind: "flag"; def: GeneralFlag } | { kind: "option"; def: GeneralOption }`. `global: true` stays visible after a command word.
+- Values map (declared once, used by every success arm): `ArgValues = Record<string, boolean | string[]>` — flags store booleans under their long name, options store string arrays.
+- Arity marker (plain integer, no `Infinity`): `MAX_PARAMS = 1024`; `max >= MAX_PARAMS` means unbounded on the upper side.
+- Command: `{ name; defs: ArgDef[]; minParams; maxParams }` (`0 <= min <= max`, integers; scan-scoped: no help text, no execution).
+- Success arms: `run { command; argValues: ArgValues; params: string[] }` (word required), `no-command { argValues: ArgValues; params: string[] }` (facts only).
+- One failure arm per outcomes-table row, each with its own `kind` and exact fields (message on every failure arm; `command?` only where the word may already exist — never on unknown-word, always on arity arms):
+
+| `kind` | fields |
+|---|---|
+| `unknown-command` | `message; word` |
+| `unknown-option` | `message; token; command?` |
+| `missing-value` | `message; option; command?` |
+| `unexpected-value` | `message; flag; command?` |
+| `too-many` | `message; name; command?` |
+| `too-few-params` | `message; command; got` |
+| `too-many-params` | `message; command; got` |
+
+- `ScanResult = run | no-command | unknown-command | unknown-option | missing-value | unexpected-value | too-many | too-few-params | too-many-params` (nine arms, tag on each).
+- Entry: `scanArgv(argv: string[], generals: GeneralArgDef[], commands: Command[])`. Registration clashes (same spelling, two different objects outside the command's own spellings) and bad arity shapes throw plain `Error`s (programmer bugs, ADR-004).
+- Command registrations reference shared general entries, never copy them.
 
 ### Generals (`src/generalArgs.ts`, spec 008 — this plan)
 
 - `GENERAL_ARGS` holds the general command-line arguments (`GeneralArgDef[]`): `--provider` / `-p`, `--key` / `-k`, `--model` / `-m` (all options, `repeatable: false`, `global: false`) + `--help` / `-h` (flag, `global: true`).
-- The entry point passes `GENERAL_ARGS` as the scan's generals. No hard-coded spellings anywhere in 002: the scan resolves every token through the visible defs.
+- The entry point passes the generals table as the scan's generals. No hard-coded spellings anywhere: the scan resolves every token through the visible defs.
 
 ### Entry point loop (`src/args.ts` — real scan, this plan)
 
-- One left-to-right pass over `argv`, fed `generals: ArgDef[]` + `commands: Command[]`. Before any command word ONLY generals are valid; after the word, that command's `defs` first, then `global: true` generals, plus plains. On word resolve, collected tokens re-check against the command's rule (dumb, never compared).
+- One left-to-right pass over the tokens, fed the generals table + the command table. Before any command word ONLY generals are valid; after the word, that command's defs first, then visible-after-word generals, plus plains. On word resolve, collected tokens re-check against the command's rule (dumb, never compared).
 - No hard-coded spellings: every dash-token resolves through the visible defs; `--help` is a plain flag entry. A set flag never fills an option's value slot. After bare `--` everything is text. `-h ask` ≡ `ask -h` → same arm (flag carries through either order).
 - Flag: zero values, `=` always error, second occurrence → too-many. `--no-<name>` is a separate spelled flag writing `false` to the same key.
 - Option: exactly one value (apart / `--o=v` / `-ovalue`); `-o=value` is an error; missing/empty/`-`-next → missing-value; a set flag never fills its value slot. `repeatable: false` second occurrence → too-many; `true` accumulates in order.
-- Result arms: `run` / `no-command` / `parse-error` as above (no help text in any arm, no help arms at all); the entry point switches on `kind` — `run`/`no-command` first check the help flag (set → block stdout exit 0, handler never called), else `run` dispatches to the handler, `no-command` decides by facts (present → `No command.` + block stderr exit 2; empty → block stdout exit 0), `parse-error` prints `message + "\n\n" + block` on stderr with its exit code. Arity checked on the `run` path, always — a set flag changes nothing (dumb). No `try/catch` for the normal path (ADR-004); exceptions stay for the unexpected only.
-- Errors carry the resolved word (`command?`) + exit code (unknown command → 1, rest → 2), never help text; arity checked on the `run` path only (`Too few/many params`, always — no flag skips it); no-word → `no-command` facts (entry point decides: help flag → block 0; else present → 2, empty → 0); no pre-scan empty-`argv` shortcut (empty scans to `no-command`).
+- Result arms: two successes + seven named failures as above (no help text in any arm, no exit codes in the scan at all); the entry point switches on `kind` — success arms first check the help flag (set → block stdout exit 0, handler never called), else success-with-command dispatches to the handler, success-without-command decides by facts (present → `No command.` + block stderr exit 2; empty → block stdout exit 0), every failure arm prints `message + "\n\n" + block` on stderr with exit 2 (one mapping, block restored from the resolved command or the general block). Arity checked on the success-with-command path, always — no flag skips it. No `try/catch` for the normal path (ADR-004); exceptions stay for the unexpected only.
+- All failure arms carry the diagnosis line; `command?` travels only where the word may already exist; exit codes live in exactly one place — the entry point.
 
 ### What stays parked (commented, not deleted)
 

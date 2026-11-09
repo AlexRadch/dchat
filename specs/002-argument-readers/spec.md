@@ -49,51 +49,51 @@ any-plain = ? one plain token ? ;
 
 ### User Story 1 - Standard command line parses (Priority: P1)
 
-A user runs `dchat ask --provider faux "Hi there"` or any free-order mix (`dchat ask "Hi" --provider faux`). Options take their single value first; leftover plains become the `params` chunks. All flag states and option values land in one map — `argValues`.
+A user runs `dchat ask --provider faux "Hi there"` or any free-order mix (`dchat ask "Hi" --provider faux`). Options take their single value first; leftover plains become the param chunks. All flag states and option values land in one values map.
 
 **Acceptance Scenarios**:
 
-1. **Given** command `ask` referencing `providerOption`, **When** the user runs `dchat ask --provider faux "Hi"`, **Then** `argValues` holds the value and params is `["Hi"]`.
-2. **Given** the same ownership, **When** the user runs `dchat ask "Hi" --provider faux`, **Then** the result is identical.
+1. **Given** command `ask` referencing `providerOption`, **When** the user runs `dchat ask --provider faux "Hi"`, **Then** values hold the single value and chunks are `["Hi"]`.
+2. **Given** the same command, **When** the user runs `dchat ask "Hi" --provider faux`, **Then** the result is identical.
 
 ---
 
 ### User Story 2 - Repetition is rejected unless allowed (Priority: P1)
 
-A user repeats a flag or a single-shot option and gets a loud error. A repeatable option accumulates.
+A user repeats a flag or a single-shot option and gets a loud too-many. A repeatable option accumulates.
 
 **Acceptance Scenarios**:
 
-1. **Given** flag `-f` already seen, **When** `-f` (or its `--flag` form) appears again, **Then** the parse fails as too-many.
-2. **Given** option `--provider` (`repeatable: false`) already seen, **When** it appears again, **Then** the parse fails as too-many.
-3. **Given** option `--tag` (`repeatable: true`) seen twice, **When** the scan finishes, **Then** both values are kept in order.
+1. **Given** flag `-f` already seen, **When** `-f` appears again, **Then** the scan fails as too-many.
+2. **Given** option `--provider` (single-shot) already seen, **When** it appears again, **Then** the scan fails as too-many.
+3. **Given** option `--tag` (repeatable) seen twice, **When** the scan finishes, **Then** both values are kept in order.
 
 ---
 
 ### User Story 3 - Help is an ordinary global flag (Priority: P1)
 
-`--help` / `-h` is a plain flag entry (`helpFlag`, `global: true`) — no loop rule, no hard-coded spelling in the scan. It scans like any flag: repeats fail, `=` fails, after `--` it is text, an error anywhere beats it (the scan returns `parse-error` before any flag meaning is read). The entry point gives it meaning: a set help flag means print the block (command's block if a word resolved, else general) to stdout, exit 0, handler never called.
+`--help` / `-h` is a plain flag entry (global, visible after every word) — no loop rule, no hard-coded spelling in the scan. It scans like any flag: repeats fail, `=` fails, after `--` it is text, an error anywhere beats it (the scan returns the failure outcome before any flag meaning is read). The entry point gives it meaning: a set help flag means print the block (command's block if a word resolved, else general) to stdout, exit 0, handler never called.
 
 **Acceptance Scenarios**:
 
-1. **Given** no command word on the line, **When** `--help` appears, **Then** a `no-command` is returned with the flag set in `argValues`; entry point prints the general block to stdout, exit 0.
-2. **Given** command `ask` already seen, **When** `--help` appears, **Then** a `run` for `ask` is returned with the flag set — arity is still checked dumb (a help flag on an arity-1 command fails as `Too few params`); entry point prints the block for a clean `run`, exit 0.
-3. **Given** `-h ask` or `ask -h`, **When** scanned, **Then** both return the identical `run`/`no-command` for `ask` with the flag set — the flag does not stop the scan, the word still resolves.
-4. **Given** `--help=x` or `--no-help`, **When** scanned, **Then** it fails as a flag error (unexpected value / unknown option) — like any flag, exit 2.
-5. **Given** `--help` plus an erroneous token in either order, **When** scanned, **Then** a `parse-error` is returned (the error wins) — the flag never saves a bad line.
-6. **Given** `--help` twice on one line, **When** scanned, **Then** it fails as `Too many occurrences` — a repeated single-shot flag like any other; multi-use needs an explicit opt-in on the entry.
+1. **Given** no command word on the line, **When** `--help` appears, **Then** success-without-command is returned with the flag set in values; entry point prints the general block to stdout, exit 0.
+2. **Given** command `ask` already seen, **When** `--help` appears, **Then** success-with-command for `ask` is returned with the flag set — arity is still checked dumb (a help flag on an arity-1 command fails as too-few-params); entry point prints the block for a clean success, exit 0.
+3. **Given** `-h ask` or `ask -h`, **When** scanned, **Then** both return the identical outcome for `ask` with the flag set — the flag does not stop the scan, the word still resolves.
+4. **Given** `--help=x` or `--no-help`, **When** scanned, **Then** it fails as unexpected-value / unknown-option — like any flag, exit 2.
+5. **Given** `--help` plus an erroneous token in either order, **When** scanned, **Then** the failure outcome is returned (the error wins) — the flag never saves a bad line.
+6. **Given** `--help` twice on one line, **When** scanned, **Then** it fails as too-many — a repeated single-shot flag like any other; multi-use needs an explicit opt-in on the entry.
 
 ---
 
 ### User Story 4 - No command word is a normal outcome, not a failure (Priority: P1)
 
-A bare line (`dchat`, `dchat --provider faux`) scans fine: the scan reports facts (`argValues` map + `params` chunks) in a fifth arm `no-command` — no message, no exit code, nothing to fail. Meaning belongs to the entry point: facts present → misplaced content, error `No command.` + general block on stderr, exit 2; facts empty → plain general help on stdout, exit 0.
+A bare line (`dchat`, `dchat --provider faux`) scans fine: the scan reports facts (values map + param chunks) as success-without-command — no message, no exit code, nothing to fail. Meaning belongs to the entry point: facts present → misplaced content, error `No command.` + general block on stderr, exit 2; facts empty → plain general help on stdout, exit 0.
 
 **Acceptance Scenarios**:
 
-1. **Given** no command word and parsed facts present, **When** the scan finishes, **Then** a `no-command` arm is returned (facts `argValues` + `params`, no `exitCode`); the entry point prints `No command.` + general block on stderr, exit 2.
-2. **Given** empty `argv` (no word, no facts), **When** scanned, **Then** a `no-command` with empty facts is returned; the entry point prints general help on stdout, exit 0 (the old pre-scan empty-`argv` shortcut is gone).
-3. **Given** a valid command word, **When** scanned, **Then** the result is `run` (arity checked) — `no-command` never appears alongside a word.
+1. **Given** no command word and parsed facts present, **When** the scan finishes, **Then** success-without-command is returned (facts, no exit code); the entry point prints `No command.` + general block on stderr, exit 2.
+2. **Given** empty `argv` (no word, no facts), **When** scanned, **Then** success-without-command with empty facts is returned; the entry point prints general help on stdout, exit 0 (the old pre-scan empty-`argv` shortcut is gone).
+3. **Given** a valid command word, **When** scanned, **Then** the result is success-with-command (arity checked) — success-without-command never appears alongside a word.
 
 ---
 
@@ -102,6 +102,7 @@ A bare line (`dchat`, `dchat --provider faux`) scans fine: the scan reports fact
 - Detaching a definition (removing it from the command's `defs`) removes its spellings: former spellings fail as unknown-option.
 - `dchat --help ask` and `dchat ask --help` return the same `run` for `ask` with the help flag set: no arm stops the scan, the word still resolves, an error still beats the flag.
 - A general spelling before the word is checked against the general entry; once the word resolves, every collected token is re-checked against the command's rule for it (own entry, else the `global: true` general). Same object referenced twice is one rule; two different objects with one spelling is two rules — the scan acts dumb, never compares.
+- The scan outcomes table (Key Entities) is the full list of what the scan can return: two success shapes plus one named failure shape per failure type. No other failure shape exists.
 
 ## Scope — what this spec does NOT cover
 
@@ -111,10 +112,13 @@ scan (entry point, command modules, follow-up specs) and MUST NOT be pulled
 in here:
 
 - Help texts (`generalHelp`, per-command blocks): the scan returns the
-  resolved word (`command?`), the entry point restores and prints the block.
-  The scan never decides WHAT help means — a set help flag is just a flag.
-- Exit codes: `parse-error` carries one (the scan kept failing); `no-command`
-  carries none — no word is a normal outcome, the entry point owns the meaning.
+  resolved word (the command, when one resolved), the entry point restores
+  and prints the block. The scan never decides WHAT help means — a set help
+  flag is just a flag.
+- Exit codes: the scan carries none — every failure outcome is a usage error
+  by construction. The entry point maps all of them to exit 2 in one place;
+  `no-command` semantics stay as described. Exit 1 is reserved for runtime
+  failures and programmer bugs above the scan.
 - Execution (`run`, handler dispatch, `RunCommand`): the scan returns the
   `run` arm with finished data; what happens next is not its concern.
 - Value interpretation (numbers, enums, key-spec forms, defaults): handlers
@@ -128,34 +132,49 @@ rejected — extend the layers above, not the scan.
 
 ### Functional Requirements
 
-- **FR-001**: The entry point runs one left-to-right scan over `argv`. It is fed the general args (spec 008) plus the command table (`Command[]` — word + defs only, no help text, no execution); there is no other shared state. No parsing lives in handlers. Before any command word ONLY generals are accepted — their shape is known upfront, so `-f` before a command is decided by the generals table alone, never guessed. A command-owned spelling before its command word fails immediately (unknown or misplaced), it is never buffered for later. After the word the scan tries the command's own `defs` first, then generals with `global: true` — other generals are invisible there. Once the word resolves, every token collected before it is re-checked against the command's rule for it (own entry if present, else the `global: true` general): same referenced object is one rule, two different objects is two rules — the scan acts dumb, never compares shapes, never validates the configuration. Marker placement is type-level: only general entries (`GeneralArgDef`) carry `global` — command `defs` are plain `ArgDef` and cannot carry them.
-- **FR-002**: Each definition owns its spellings: one long form plus exactly one short alias (`--option` / `-o`). Commands have no aliases. Within one list (generals alone, or one command's `own + visible globals`) no two defs may claim the same spelling — except the same referenced object counted twice (a general referenced by the command is one rule, not a duplicate).
-- **FR-003**: A `Flag` takes zero values. Any `=` on a flag (`--flag=x`, `-f=x`) is an error. A `Flag` MUST NOT repeat: the second occurrence fails as too-many. `--no-<name>` is a separate spelled flag that turns the feature off; short flags have no negated form.
-- **FR-004**: An `Option` takes exactly one value, written either apart (`--option value`, `-o value`) or glued (`--option=value`, `-ovalue` in one argv element). A missing value (end of input, next token starts with `-`, empty `=` suffix) fails as missing-value. `-o=value` is NOT a glued form — it is an error. A set flag (any flag, help included) never fills an option's value slot.
-- **FR-005**: An `Option` declares `repeatable: boolean`. A second occurrence with `repeatable: false` fails as too-many. With `repeatable: true` values accumulate in order.
-- **FR-005b**: A command-owned spelling appearing BEFORE its command word fails immediately — it is never buffered and never re-checked later. The only tokens valid before a command word are generals (spec 008). So `dchat --provider faux ask` fails at `--provider` even if `ask` references it — command defs activate only after their word.
-- **FR-005c**: Each command declares param arity: `{ minParams: number; maxParams: number }` — both required, integers, `0 <= min <= max`. `maxParams >= MAX_PARAMS` (1024) means unbounded (no upper check); no `Infinity` — the bound fits a plain integer in every language. The scan checks arity on the `run` path only (`command-help` is gone — see Story 3): fewer than `min` → `Too few params for <name>`, more than `max` (when bounded) → `Too many params for <name>`, both exit 2 with the resolved word. A bad shape (negative, non-integer, `min > max`) is a programmer bug and throws.
-- **FR-006**: The scan hands each command's handler finished data only: flag states, option values (raw strings, exactly as typed), and the ordered `params` chunks. The command joins chunks as it needs (`ask` joins with one space); the handler converts types and reports its own type errors; the loop never interprets values.
-- **FR-007**: No hard-coded spellings in the scan. `--help`, `-h`, `--no-help`, `--help=x` are ordinary tokens resolved through the visible defs like any other: a flag with `=` fails as unexpected-value, an unlisted spelling fails as unknown-option, after `--` any of them is plain text. `-h ask` and `ask -h` behave identically — both resolve `ask` and return the same arm — because the flag does not stop the scan and the word is still scanned in either order.
+- **FR-001**: The entry point runs one left-to-right scan over the tokens. It is fed the general args (the 008 table) plus the command table; there is no other shared state. No parsing lives in handlers. Before any command word ONLY generals are accepted. A command-owned spelling before its command word fails immediately as unknown-option, it is never buffered for later. After the word the scan tries the command's own defs first, then generals marked visible-after-word — other generals are invisible there. Once the word resolves, every token collected before it is re-checked against the command's rule for it: same referenced object is one rule, two different objects is two rules — the scan acts dumb, never compares shapes, never validates the configuration. Marker placement is type-level: only general entries carry the visibility marker — command defs are plain and cannot carry it.
+- **FR-002**: Each definition owns its spellings: one long form plus exactly one short alias. Commands have no aliases. Within one list no two defs may claim the same spelling — except the same referenced object counted twice (a general referenced by the command is one rule, not a duplicate).
+- **FR-003**: A flag takes zero values. Any `=` on a flag is an error (unexpected-value). A repeated flag fails as too-many. A separate `--no-` spelled flag turns the feature off; short flags have no negated form.
+- **FR-004**: An option takes exactly one value, written apart or glued with `=` / short form. A missing value (end of input, next token starts with `-`, empty `=` suffix) fails as missing-value. A glued `-o=value` form fails as unexpected-value. A set flag never fills an option's value slot.
+- **FR-005**: A repeated single-shot option fails as too-many. A repeatable option accumulates values in order.
+- **FR-005b**: A command-owned spelling appearing BEFORE its command word fails immediately as unknown-option — it is never buffered and never re-checked later. The only tokens valid before a command word are generals.
+- **FR-005c**: Each command declares param arity (minimum and bounded maximum chunk counts; the maximum has an unbounded marker value). The scan checks arity on the success-with-command path only: fewer than minimum fails as too-few-params, more than a bounded maximum fails as too-many-params, both with the resolved command. A bad shape is a programmer bug and throws.
+- **FR-006**: The scan hands each command's handler finished data only: flag states, option values (raw strings, exactly as typed), and the ordered param chunks. The command joins chunks as it needs; the handler converts types and reports its own type errors; the loop never interprets values.
+- **FR-007**: No hard-coded spellings in the scan. Help spellings are ordinary tokens resolved through the visible defs like any other: a flag with `=` fails as unexpected-value, an unlisted spelling fails as unknown-option, after `--` any of them is plain text. Both orders behave identically — the flag does not stop the scan and the word is still scanned in either order.
 - **FR-008**: A bare `--` ends option processing: it is consumed, everything after it is `any-plain` text, even tokens starting with `-`.
 - **FR-009**: Detaching a definition (removing it from the command's defs) removes its spellings: former spellings fail as unknown-option.
-- **FR-010**: Expected scan failures are a failure arm, not exceptions (ADR-004): `parse-error` (`{ kind: "parse-error"; result: { message; exitCode; command? } }` — diagnosis, shell code, and the resolved word if any; no `helpBlock`, the entry point restores the block itself). The entry point prints `message + "\n\n" + block` on stderr, where block is general help (no command yet) or that command's block (kept above the scan). Unknown command exits 1; all other parse errors exit 2. A missing word is NOT a scan failure: it returns `no-command` (`{ kind: "no-command"; result: { argValues; params } }` — facts only, no message, no exit code); the entry point decides: facts present → `No command.` + general block on stderr, exit 2; facts empty → general block on stdout, exit 0. No pre-scan empty-`argv` shortcut: empty input scans to `no-command` with empty facts.
+- **FR-010**: Expected scan failures are named failure outcomes, not exceptions (ADR-004) and carry no exit code: one outcome shape per failure type — the scan says WHAT happened (by shape), the entry point decides the shell meaning (all scan failures are usage errors → exit 2, one mapping in one place). A missing word is NOT a scan failure: it returns success-without-command (facts only, no message, no exit code); the entry point decides by the no-command rule. No pre-scan empty-input shortcut: empty input scans to success-without-command with empty facts.
 
 ### Key Entities
 
-- **Flag**: `{ name: "--flag"; alias: "-f" }` — zero values, never repeats, `=` always an error. The `--no-<name>` off-form is a second `Flag` entry, never automatic. Only the general heir (`GeneralFlag`) carries `global: true|false`; a command-side `Flag` has no such field.
-- **Option**: `{ name: "--option"; alias: "-o"; repeatable: boolean }` — exactly one raw-string value per occurrence; `repeatable: true` accumulates, `false` rejects the second occurrence.
-- **Command**: `{ name: string; defs: ArgDef[]; minParams: number; maxParams: number }` — the word, its own plain defs (`ArgDef`, never `GeneralArgDef`: no `global` on command entries), and param arity (`0 <= min <= max`, integers; `max >= MAX_PARAMS` means unbounded). No `help`, no `run`: help texts and execution live above the scan (Scope).
-- **Parse result**: a discriminated union of three shapes — `run` (`{ kind; command; argValues; params }`, command required — handler runs; with no word the scan returns `no-command` instead, never a command-less `run`), `no-command` (`{ kind; argValues; params }`, no word — facts only, normal outcome, NO message and NO exit code; the entry point owns the meaning: a set help flag means print the block, facts present without it mean error, facts empty without it mean plain help), or `parse-error` (`{ kind; message; exitCode; command? }`, expected input failure — diagnosis, shell code, resolved word if any; ADR-004). No arm carries help text: the entry point restores the block (`command ?` its block `: general`) and prints `message + "\n\n" + block` on stderr for errors, the block alone on stdout for helps and for the help flag. `params` is always an array (possibly empty) — the scan never joins chunks. `ArgDef = { kind: "flag"; def: Flag } | { kind: "option"; def: Option }` — plain command-side defs, `kind` lives only in the wrapper. General entries extend the members: `GeneralFlag extends Flag { global: boolean }`, `GeneralOption extends Option { global: boolean }`, `GeneralArgDef = { kind: "flag"; def: GeneralFlag } | { kind: "option"; def: GeneralOption }` — `global` exists ONLY on general entries, a command entry cannot carry them even by accident. `scanArgv(argv, generals: GeneralArgDef[], commands: Command[])`. The member types themselves stay clean; `kind` still lives only in the wrapper.
+Outcomes table — the full list of what the scan can return, in plain words (no code types here; the TS union lives in the plan). Adding a new failure shape means adding a row here first.
+
+| outcome | when | carries |
+|---|---|---|
+| success with command | word found, everything fits | the command, parsed values, param chunks |
+| success without command | no word, clean scan | parsed values, param chunks |
+| unknown word | plain token where a word fits matches no command | the word itself |
+| unknown option | dash-token matches no visible entry | the token; the command, when one already resolved |
+| missing value | option left without its single value | the option's name; the command, when resolved |
+| unexpected value | `=` glued onto a flag | the flag's name; the command, when resolved |
+| too many | repeated single-shot option, or any repeated flag | the entry's name; the command, when resolved |
+| too few params | fewer chunks than the command's minimum | the command; how many chunks arrived |
+| too many params | more chunks than the command's bounded maximum | the command; how many chunks arrived |
+
+Every row except the two successes shares one extra fact: a human-readable diagnosis line, built by the scan. No row carries an exit code — all failure rows are usage errors by construction (entry point → exit 2).
+
+- **Flag**: a flag takes zero values, never repeats, `=` always an error. The `--no-` off-form is a second flag entry, never automatic. Only the general heir carries visibility; a command-side flag has no such field.
+- **Option**: exactly one raw-string value per occurrence; `repeatable: true` accumulates, `false` rejects the second occurrence.
+- **Command**: the word, its own plain defs (never the general kind: no visibility marker on command entries), and param arity (minimum and bounded maximum counts). No help text, no execution: help texts and execution live above the scan (Scope).
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: Every `argv` accepted by the grammar parses; every `argv` rejected by the grammar returns the `parse-error` arm with the named message (entry point appends its block at print time). A set help flag is not a rejection — the scan returns the normal arm with the flag set, the entry point prints the block.
-- **SC-002**: Repeating a flag or a non-repeatable option always fails; repeating a repeatable option keeps all values in order. Param counts outside `[min, max]` fail as `Too few/many params`; `max >= MAX_PARAMS` never fails the upper check.
-- **SC-004**: No command word returns `no-command` with facts only (no message, no exit code); `run` requires the word. Entry point: help flag set → block exit 0; else facts present → error exit 2; facts empty → help exit 0.
-- **SC-003**: A set help flag prints the right block to stdout, exit 0, handler never called; `--help=x` and unlisted `--no-help` always fail.
+- **SC-001**: Every `argv` accepted by the grammar parses; every `argv` rejected by the grammar returns the named failure outcome from the outcomes table with its diagnosis (entry point appends its block at print time, exit 2). A set help flag is not a rejection — the scan returns the normal arm with the flag set, the entry point prints the block.
+- **SC-002**: Repeating a flag or a non-repeatable option always fails as too-many; repeating a repeatable option keeps all values in order. Param counts outside the command's range fail as too-few/too-many params; an unbounded maximum never fails the upper check.
+- **SC-004**: No command word returns success-without-command with facts only (no message, no exit code). Entry point: help flag set → block exit 0; else facts present → error exit 2; facts empty → help exit 0.
+- **SC-003**: A set help flag prints the right block to stdout, exit 0, handler never called; `--help=x` and unlisted `--no-help` always fail as unexpected-value / unknown-option.
 
 ## Assumptions
 

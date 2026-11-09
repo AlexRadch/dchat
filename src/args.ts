@@ -62,17 +62,52 @@ export interface RunPayload {
 	params: string[];
 }
 
-export interface ParseErrorPayload {
+export interface UnknownCommandOutcome {
 	message: string;
-	exitCode: 1 | 2;
+	word: string;
+}
+
+export interface UnknownOptionOutcome {
+	message: string;
+	token: string;
 	command?: Command;
+}
+
+export interface MissingValueOutcome {
+	message: string;
+	option: string;
+	command?: Command;
+}
+
+export interface UnexpectedValueOutcome {
+	message: string;
+	flag: string;
+	command?: Command;
+}
+
+export interface TooManyOutcome {
+	message: string;
+	name: string;
+	command?: Command;
+}
+
+export interface TooFewParamsOutcome {
+	message: string;
+	command: Command;
+	got: number;
+}
+
+export interface TooManyParamsOutcome {
+	message: string;
+	command: Command;
+	got: number;
 }
 
 // Discriminated union per ADR-003 + ADR-004: the tag lives on the arms, the
 // payloads stay clean (a payload knows nothing about the unions it joins).
-// Expected scan failures are the parse-error arm (message + exit code +
-// resolved word; no help text — the entry point restores the block itself),
-// never exceptions.
+// Expected scan failures are one named arm per failure type (message carries
+// the diagnosis; no help text, no exit code — the entry point restores the
+// block and maps every failure to exit 2 itself), never exceptions.
 // A set help flag is NOT a scan outcome: it rides inside argValues of the
 // normal arm (run / no-command) and the entry point reads it first.
 // Declared with interfaces (plain structural shapes, erased at runtime —
@@ -81,11 +116,17 @@ export interface ParseErrorPayload {
 export type ScanResult =
 	| { kind: "run"; result: RunPayload }
 	| { kind: "no-command"; result: NoCommandPayload }
-	| { kind: "parse-error"; result: ParseErrorPayload };
+	| { kind: "unknown-command"; result: UnknownCommandOutcome }
+	| { kind: "unknown-option"; result: UnknownOptionOutcome }
+	| { kind: "missing-value"; result: MissingValueOutcome }
+	| { kind: "unexpected-value"; result: UnexpectedValueOutcome }
+	| { kind: "too-many"; result: TooManyOutcome }
+	| { kind: "too-few-params"; result: TooFewParamsOutcome }
+	| { kind: "too-many-params"; result: TooManyParamsOutcome };
 
 // Registration errors are programmer bugs (ADR-004: truly exceptional —
 // no meaningful value to return), so they stay thrown as plain Errors.
-// Expected input failures never throw: they return the parse-error arm.
+// Expected input failures never throw: they return one named arm each.
 
 function spellings(def: ArgDef | GeneralArgDef): string[] {
 	const out = [def.def.name];
@@ -142,8 +183,9 @@ function findExact(active: (ArgDef | GeneralArgDef)[], token: string): ArgDef | 
 }
 
 // Single left-to-right scan. No hard-coded spellings: every dash-token
-// resolves through the visible defs. Expected input failures return the
-// parse-error arm (ADR-004), never throw.
+// resolves through the visible defs. Expected input failures return one
+// named arm per failure type (ADR-004), never throw — no exit codes here,
+// the entry point maps every failure to exit 2 itself.
 // Only programmer bugs (duplicate registration) throw, as plain Errors.
 export function scanArgv(
 	argv: string[],
@@ -190,13 +232,22 @@ export function scanArgv(
 			entry
 		);
 	};
-	const fail = (message: string, exitCode: 1 | 2): ScanResult => ({
-		kind: "parse-error",
-		result: { message, exitCode, command },
+	const tooMany = (name: string): ScanResult => ({
+		kind: "too-many",
+		result: { message: `Too many occurrences of ${name}.`, name, command },
 	});
-	const tooMany = (name: string): ScanResult => {
-		return fail(`Too many occurrences of ${name}.`, 2);
-	};
+	const missingValue = (option: string): ScanResult => ({
+		kind: "missing-value",
+		result: { message: `Missing value for ${option}.`, option, command },
+	});
+	const unexpectedValue = (flag: string): ScanResult => ({
+		kind: "unexpected-value",
+		result: { message: `Unexpected value for ${flag}.`, flag, command },
+	});
+	const unknownOption = (token: string): ScanResult => ({
+		kind: "unknown-option",
+		result: { message: `Unknown option: ${token}.`, token, command },
+	});
 	const storeOption = (entry: Extract<ArgDef | GeneralArgDef, { kind: "option" }>, value: string): ScanResult | undefined => {
 		if ((counts.get(entry) ?? 0) >= 1 && !entry.def.repeatable) {
 			return tooMany(entry.def.name);
@@ -228,7 +279,7 @@ export function scanArgv(
 				}
 				const v = argv[i + 1];
 				if (v === undefined || v === "" || (v.startsWith("-") && v !== "--")) {
-					return fail(`Missing value for ${rule.def.name}.`, 2);
+					return missingValue(rule.def.name);
 				}
 				const stored = storeOption(rule, v);
 				if (stored) return stored;
@@ -243,10 +294,10 @@ export function scanArgv(
 				if (byName) {
 					const rule = ruleFor(byName);
 					if (rule.kind === "flag") {
-						return fail(`Unexpected value for ${rule.def.name}.`, 2);
+						return unexpectedValue(rule.def.name);
 					}
 					if (suffix === "") {
-						return fail(`Missing value for ${rule.def.name}.`, 2);
+						return missingValue(rule.def.name);
 					}
 					const storedByName = storeOption(rule, suffix);
 					if (storedByName) return storedByName;
@@ -255,9 +306,9 @@ export function scanArgv(
 				}
 				const byAlias = list.find((d) => d.def.alias !== "" && lname === d.def.alias);
 				if (byAlias) {
-					return fail(`Unexpected value for ${ruleFor(byAlias).def.name}.`, 2);
+					return unexpectedValue(ruleFor(byAlias).def.name);
 				}
-				return fail(`Unknown option: ${t}.`, 2);
+				return unknownOption(t);
 			}
 			const glued = list.find(
 				(d) =>
@@ -269,14 +320,14 @@ export function scanArgv(
 			if (glued && glued.kind === "option") {
 				const rule = ruleFor(glued);
 				if (rule.kind !== "option") {
-					return fail(`Unexpected value for ${rule.def.name}.`, 2);
+					return unexpectedValue(rule.def.name);
 				}
 				const storedGlued = storeOption(rule, t.slice(glued.def.alias.length));
 				if (storedGlued) return storedGlued;
 				i++;
 				continue;
 			}
-			return fail(`Unknown option: ${t}.`, 2);
+			return unknownOption(t);
 		}
 		if (!command && !endOfOptions) {
 			const found = commands.find((c) => c.name === t);
@@ -306,7 +357,7 @@ export function scanArgv(
 				i++;
 				continue;
 			}
-			return fail(`Unknown command: ${t}.`, 1);
+			return { kind: "unknown-command", result: { message: `Unknown command: ${t}.`, word: t } };
 		}
 		texts.push(t);
 		i++;
@@ -321,12 +372,19 @@ export function scanArgv(
 		return { kind: "no-command", result: { argValues, params: texts } };
 	}
 	// Arity is checked on the run path, always — a set flag changes nothing.
-	// A help flag on an arity-1 command fails as Too few params (dumb).
+	// A help flag on an arity-1 command fails dumb (too-few-params arm;
+	// the entry point still prints the block after the message).
 	if (texts.length < command.minParams) {
-		return fail(`Too few params for ${command.name}.`, 2);
+		return {
+			kind: "too-few-params",
+			result: { message: `Too few params for ${command.name}.`, command, got: texts.length },
+		};
 	}
 	if (command.maxParams < MAX_PARAMS && texts.length > command.maxParams) {
-		return fail(`Too many params for ${command.name}.`, 2);
+		return {
+			kind: "too-many-params",
+			result: { message: `Too many params for ${command.name}.`, command, got: texts.length },
+		};
 	}
 	return { kind: "run", result: { command, argValues, params: texts } };
 }

@@ -6,6 +6,13 @@
 
 **Tests**: Union arms on fake defs; old short-circuit asserts replaced by arm asserts.
 
+## Phase 12: named failure outcomes (no exit codes in scan)
+
+- [x] T038 `src/args.ts`: `ParseErrorPayload` + `exitCode` removed; seven failure arms with exact fields per plan table; `fail()` replaced by per-shape constructors; entry mapping untouched yet (still reads arms, exit codes hardcoded at call sites — full entry-point remap lands in T039).
+- [x] T039 `src/chat.ts`: single `exitCode = 2` mapping for every failure arm (`command` restores the block, `word`/`token` arms use the general block); `process.exitCode = 1` only for thrown programmer bugs; no-command rule unchanged.
+- [x] T040 `tests/scanArgv.test.ts`: `expectParseError` reworked per shape (kind + exact fields, no exit codes); every error test asserts its own arm; message texts unchanged.
+- [x] T041 Spec 002 (FR-010, outcomes table, SC), plan (Types + loop sections above), ADR-004 note (exit codes leave the scan); verify: `npm test` + `npm run typecheck` green.
+
 ## Phase 11: GeneralArgDef heirs (markers only on generals)
 
 - [x] T035 `src/args.ts`: `ArgDef` back to plain (`{ kind; def }` — no markers); `GeneralFlag extends Flag { global }`, `GeneralOption extends Option { global }`, `GeneralArgDef` wrapper; `scanArgv(argv, generals: GeneralArgDef[], ...)`; all internals (`counts`, `ruleFor`, `active`, re-check) typed over the general side where markers are read, plain `ArgDef` where command defs flow.
