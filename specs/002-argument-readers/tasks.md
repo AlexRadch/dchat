@@ -6,6 +6,13 @@
 
 **Tests**: Union arms on fake defs; old short-circuit asserts replaced by arm asserts.
 
+## Phase 5: abstract scan (no help text, no execution in args.ts)
+
+- [x] T014 `src/args.ts`: `Command` loses `help`; `RunCommand` moved to the entry point; help payloads lose `help`; `scanArgv` loses the `generalHelp` parameter. Spec Scope section states the scan is exhaustive and lists what MUST NOT be pulled in.
+- [x] T015 `src/chat.ts` (undocumented for now, specs land with the ask spec): `RunCommand` with `help` + `run`, `GENERAL_HELP`, `commandHelp()` restoring blocks; `askArgs.ts` imports `RunCommand` from the entry point.
+- [x] T016 `tests/scanArgv.test.ts`: no help constants, no `help:` in fake commands, no help-text asserts — facts only (names/defs/options/text/message/exitCode/command?).
+- [x] T017 Verify: `npm test` + `npm run typecheck` green; live `--bogus`/`--help` paths unchanged in behavior.
+
 ## Phase 4: parse-error arm (ADR-004, no helpBlock in scan)
 
 - [x] T011 `src/args.ts`: fourth arm `parse-error` (`{ kind; result: { message; exitCode; command? } }`); scan returns it instead of `throw ParseError`; `chat.ts` becomes one `switch` (helps → stdout 0, `run` → dispatch, `parse-error` → restore block + stderr); `ParseError` class removed (registration `Duplicate spelling` stays a plain `Error` — programmer bug, truly exceptional).

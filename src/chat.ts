@@ -2,7 +2,7 @@
 // Ask execution is PARKED (commented, not deleted) until the ask command spec
 // re-enables it. Until then the command table holds no enabled commands:
 // any command word fails as unknown, only global --help works.
-import { scanArgv } from "./args.js";
+import { scanArgv, type Command, type RunPayload } from "./args.js";
 import { GLOBAL_ARGS } from "./globalArgs.js";
 
 const GENERAL_HELP = [
@@ -15,6 +15,21 @@ const GENERAL_HELP = [
 	"  --help, -h    Show this help",
 ].join("\n");
 
+// Execution and help texts live here, above the scan — never in args.ts.
+// The scan resolves names/defs/options/text; this module adds help blocks
+// and dispatch. Undocumented for now; the specs land with the ask spec.
+export interface RunCommand extends Command {
+	help: string;
+	run: (options: Record<string, boolean | string[]>, text?: string) => void | Promise<void>;
+}
+
+function commandHelp(command: Command): string {
+	// No per-command blocks registered yet — falls back to general help.
+	// Per-command blocks arrive with their command specs.
+	void command;
+	return GENERAL_HELP;
+}
+
 async function main(): Promise<void> {
 	const argv = process.argv.slice(2);
 	if (argv.length === 0) {
@@ -23,18 +38,23 @@ async function main(): Promise<void> {
 		return;
 	}
 	try {
-		const result = scanArgv(argv, GLOBAL_ARGS, [], GENERAL_HELP);
+		const result = scanArgv(argv, GLOBAL_ARGS, []);
 		switch (result.kind) {
 			case "general-help":
-			case "command-help":
-				console.log(result.result.help);
+				console.log(GENERAL_HELP);
 				return;
-			case "run":
+			case "command-help":
+				console.log(commandHelp(result.result.command));
+				return;
+			case "run": {
+				const payload: RunPayload = result.result;
+				void payload;
 				console.error(GENERAL_HELP);
 				process.exitCode = 2;
 				return;
+			}
 			case "parse-error": {
-				const block = result.result.command ? result.result.command.help : GENERAL_HELP;
+				const block = result.result.command ? commandHelp(result.result.command) : GENERAL_HELP;
 				console.error(`${result.result.message}\n\n${block}`);
 				process.exitCode = result.result.exitCode;
 				return;

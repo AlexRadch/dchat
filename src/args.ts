@@ -19,23 +19,20 @@ export type Def = { kind: "flag"; def: Flag } | { kind: "option"; def: Option };
 export interface Command {
 	name: string;
 	defs: Def[];
-	help: string;
 }
 
-export interface RunCommand extends Command {
-	run: (options: Record<string, boolean | string[]>, text?: string) => void | Promise<void>;
-}
+// NOTE: execution (`run`) and help texts live above the scan, in the entry
+// point and command modules — never here. The scan only resolves names,
+// defs, options and text.
 
 export interface GeneralHelpPayload {
 	options: Record<string, boolean | string[]>;
-	help: string;
 }
 
 export interface CommandHelpPayload {
 	command: Command;
 	options: Record<string, boolean | string[]>;
 	text?: string;
-	help: string;
 }
 
 export interface RunPayload {
@@ -115,7 +112,6 @@ export function scanArgv(
 	argv: string[],
 	globals: Def[],
 	commands: Command[],
-	generalHelp: string,
 ): ScanResult {
 	assertUnique(dedupRefs(globals), "globals");
 	for (const c of commands) {
@@ -240,8 +236,8 @@ export function scanArgv(
 		// above). `-h word` and `word -h` resolve the same: the word is still
 		// scanned, so both land on the identical arm.
 		return command
-			? { kind: "command-help", result: { command, options, text, help: command.help } }
-			: { kind: "general-help", result: { options, help: generalHelp } };
-	}
-	return { kind: "run", result: { command, options, text } };
+				? { kind: "command-help", result: { command, options, text } }
+				: { kind: "general-help", result: { options } };
+		}
+		return { kind: "run", result: { command, options, text } };
 }
