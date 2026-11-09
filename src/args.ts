@@ -46,6 +46,11 @@ export interface CommandHelpPayload {
 	params: string[];
 }
 
+export interface NoCommandPayload {
+	options: Record<string, boolean | string[]>;
+	params: string[];
+}
+
 export interface RunPayload {
 	command: Command;
 	options: Record<string, boolean | string[]>;
@@ -71,6 +76,7 @@ export type ScanResult =
 	| { kind: "general-help"; result: GeneralHelpPayload }
 	| { kind: "command-help"; result: CommandHelpPayload }
 	| { kind: "run"; result: RunPayload }
+	| { kind: "no-command"; result: NoCommandPayload }
 	| { kind: "parse-error"; result: ParseErrorPayload };
 
 // Registration errors are programmer bugs (ADR-004: truly exceptional —
@@ -270,9 +276,11 @@ export function scanArgv(
 	// fits [minParams, maxParams]; maxParams >= MAX_PARAMS means unbounded.
 	// command-help skips the check (help works with any count).
 	// A run always carries a command: with no word there is nothing to
-	// dispatch to, so that path returns parse-error instead.
+	// dispatch to, so the scan reports facts instead of failing — the entry
+	// point decides (params present: error; empty: plain help, exit 0).
+	// No exitCode here: a missing word is a normal outcome, not a failure.
 	if (!command) {
-		return fail("No command.", 2);
+		return { kind: "no-command", result: { options, params: texts } };
 	}
 	if (texts.length < command.minParams) {
 		return fail(`Too few params for ${command.name}.`, 2);

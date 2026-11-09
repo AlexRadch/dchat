@@ -32,11 +32,8 @@ function commandHelp(command: Command): string {
 
 async function main(): Promise<void> {
 	const argv = process.argv.slice(2);
-	if (argv.length === 0) {
-		console.error(GENERAL_HELP);
-		process.exitCode = 2;
-		return;
-	}
+	// No pre-scan empty-argv shortcut (spec 002 Story 4): empty input scans
+	// to no-command with empty facts, the switch below prints help exit 0.
 	try {
 		const result = scanArgv(argv, GLOBAL_ARGS, []);
 		switch (result.kind) {
@@ -52,6 +49,22 @@ async function main(): Promise<void> {
 				// the ask spec. Until then a valid run still has nowhere to go.
 				void payload;
 				console.error(GENERAL_HELP);
+				process.exitCode = 2;
+				return;
+			}
+			case "no-command": {
+				const facts = result.result;
+				// Words without a command are not scan failures. The entry
+				// point owns the meaning: facts present → misplaced content,
+				// error with the general block (exit 2); facts empty → plain
+				// general help on stdout (exit 0).
+				const empty =
+					facts.params.length === 0 && Object.keys(facts.options).length === 0;
+				if (empty) {
+					console.log(GENERAL_HELP);
+					return;
+				}
+				console.error(`No command.\n\n${GENERAL_HELP}`);
 				process.exitCode = 2;
 				return;
 			}

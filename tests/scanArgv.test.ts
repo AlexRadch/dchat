@@ -163,15 +163,15 @@ describe("scan: run arm (no help requested)", () => {
 		assert.ok(!("help" in r));
 	});
 
-	it("run without command is a parse-error, not a run", () => {
+	it("no word reports facts, not a failure", () => {
 		const g: Def = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false } };
 		const cmd: Command = { name: "other", defs: [], minParams: 0, maxParams: MAX_PARAMS };
 		const r = scanArgv(["--provider", "faux"], [g], [cmd]);
-		assert.equal(r.kind, "parse-error");
-		if (r.kind !== "parse-error") return;
-		assert.equal(r.result.message, "No command.");
-		assert.equal(r.result.exitCode, 2);
-		assert.equal(r.result.command, undefined);
+		assert.equal(r.kind, "no-command");
+		if (r.kind !== "no-command") return;
+		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
+		assert.deepEqual(r.result.params, []);
+		assert.ok(!("exitCode" in r.result));
 	});
 });
 
@@ -317,12 +317,12 @@ describe("scan: errors carry the relevant help", () => {
 });
 
 describe("scan: empty argv", () => {
-	it("empty argv with no word is a parse-error", () => {
+	it("empty argv with no word reports empty facts", () => {
 		const r = scanArgv([], [], [fakeCmd()]);
-		assert.equal(r.kind, "parse-error");
-		if (r.kind !== "parse-error") return;
-		assert.equal(r.result.message, "No command.");
-		assert.equal(r.result.exitCode, 2);
+		assert.equal(r.kind, "no-command");
+		if (r.kind !== "no-command") return;
+		assert.deepEqual(r.result.options, {});
+		assert.deepEqual(r.result.params, []);
 	});
 });
 

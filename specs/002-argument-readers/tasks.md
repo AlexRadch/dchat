@@ -6,6 +6,13 @@
 
 **Tests**: Union arms on fake defs; old short-circuit asserts replaced by arm asserts.
 
+## Phase 8: no-command arm (missing word is a normal outcome)
+
+- [x] T025 `src/args.ts`: fifth arm `no-command` (`{ kind; result: { options; params } }` — facts only, NO message or exit code); `!command` returns it instead of `parse-error`; `NoCommandPayload` added to `ScanResult`.
+- [x] T026 `src/chat.ts`: `no-command` case (facts present → `No command.` + general block stderr exit 2; facts empty → general block stdout exit 0); pre-scan empty-`argv` shortcut removed — empty input scans to `no-command`.
+- [x] T027 `tests/scanArgv.test.ts`: `describe("scan: no-command")` — facts carried, no exitCode, empty-argv → empty facts; `run` never appears without a word.
+- [x] T028 Verify: `npm test` + `npm run typecheck` green.
+
 ## Phase 7: command arity
 
 - [x] T021 `src/args.ts`: `Command` gains `{ minParams; maxParams }` + `MAX_PARAMS = 1024` (unbounded marker: `max >= MAX_PARAMS` skips the upper check, no `Infinity`); `assertArityShape` throws on bad shape (programmer bug); scan returns `Too few/many params for <name>` (exit 2) on the `run` path; `command-help` skips the check.
