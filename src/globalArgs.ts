@@ -4,21 +4,21 @@
 // fix a spelling here and every command picks it up.
 // A command that needs a global references the entry (e.g. ask references
 // these three); the globals spec never names which commands use them.
-import type { Def } from "./args.js";
+import type { ArgDef } from "./args.js";
 
-export const providerOption: Def = {
+export const providerOption: ArgDef = {
 	kind: "option",
 	def: { name: "--provider", alias: "-p", repeatable: false },
 };
 
-export const keyOption: Def = {
+export const keyOption: ArgDef = {
 	kind: "option",
 	def: { name: "--key", alias: "-k", repeatable: false },
 };
 
-export const modelOption: Def = {
+export const modelOption: ArgDef = {
 	kind: "option",
 	def: { name: "--model", alias: "-m", repeatable: false },
 };
 
-export const GLOBAL_ARGS: Def[] = [providerOption, keyOption, modelOption];
+export const GLOBAL_ARGS: ArgDef[] = [providerOption, keyOption, modelOption];

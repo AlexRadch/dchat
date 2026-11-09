@@ -30,7 +30,7 @@ the union arms** — never copied into the member types:
   numbers or booleans: they read in logs, survive serialization, and
   the compiler exhaustiveness-checks them in `switch (x.kind)`.
 
-Applied twice already: `Def = { kind: "flag"; def: Flag } |
+Applied twice already: `ArgDef = { kind: "flag"; def: Flag } |
 { kind: "option"; def: Option }` (002 — Flag/Option stay clean, `kind`
 lives only in the wrapper) and `ScanResult = GeneralHelp | CommandHelp |
 Run` (002 — three result shapes, `command`/`text`/`help` only on the arms

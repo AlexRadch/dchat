@@ -1,4 +1,4 @@
-// Shared CLI shape (spec 002): Flag / Option / Def / Command, single-scan parser.
+// Shared CLI shape (spec 002): Flag / Option / ArgDef / Command, single-scan parser.
 // --help / -h is a loop rule, never declared in any defs list.
 // scanArgv is standalone: testable on fake defs, independent of any command.
 // The largest params count any command accepts. Doubles as the infinity
@@ -23,11 +23,11 @@ export interface Option {
 }
 
 // kind lives only where the two are mixed; Flag and Option stay clean.
-export type Def = { kind: "flag"; def: Flag } | { kind: "option"; def: Option };
+export type ArgDef = { kind: "flag"; def: Flag } | { kind: "option"; def: Option };
 
 export interface Command {
 	name: string;
-	defs: Def[];
+	defs: ArgDef[];
 	// Param arity: how many param chunks the command accepts.
 	// Both bounds required, integers, 0 <= minParams <= maxParams.
 	// maxParams >= MAX_PARAMS means unbounded (no upper check);
@@ -87,7 +87,7 @@ export type ScanResult =
 // no meaningful value to return), so they stay thrown as plain Errors.
 // Expected input failures never throw: they return the parse-error arm.
 
-function spellings(def: Def): string[] {
+function spellings(def: ArgDef): string[] {
 	const out = [def.def.name];
 	if (def.def.alias !== "") out.push(def.def.alias);
 	return out;
@@ -95,21 +95,21 @@ function spellings(def: Def): string[] {
 
 // Flags store under one key: positive name holds true, its --no- form writes
 // false to the same key (e.g. --no-verbose clears --verbose).
-function storageKey(def: Def): string {
+function storageKey(def: ArgDef): string {
 	if (def.kind === "flag" && def.def.name.startsWith("--no-")) {
 		return `--${def.def.name.slice(5)}`;
 	}
 	return def.def.name;
 }
 
-function dedupRefs(defs: Def[]): Def[] {
+function dedupRefs(defs: ArgDef[]): ArgDef[] {
 	return [...new Set(defs)];
 }
 
 // Registration errors are programmer errors: same spelling on two different
 // entries is rejected loudly instead of silently shadowing.
-function assertUnique(active: Def[], label: string): void {
-	const seen = new Map<string, Def>();
+function assertUnique(active: ArgDef[], label: string): void {
+	const seen = new Map<string, ArgDef>();
 	for (const def of active) {
 		for (const s of spellings(def)) {
 			const prev = seen.get(s);
@@ -136,7 +136,7 @@ function assertArityShape(command: Command): void {
 	}
 }
 
-function findExact(active: Def[], token: string): Def | undefined {
+function findExact(active: ArgDef[], token: string): ArgDef | undefined {
 	return active.find((d) => token === d.def.name || (d.def.alias !== "" && token === d.def.alias));
 }
 
@@ -146,7 +146,7 @@ function findExact(active: Def[], token: string): Def | undefined {
 // Only programmer bugs (duplicate registration) throw, as plain Errors.
 export function scanArgv(
 	argv: string[],
-	globals: Def[],
+	globals: ArgDef[],
 	commands: Command[],
 ): ScanResult {
 	assertUnique(dedupRefs(globals), "globals");
@@ -156,12 +156,12 @@ export function scanArgv(
 	}
 	let command: Command | undefined;
 	const argValues: ArgValues = {};
-	const counts = new Map<Def, number>();
+	const counts = new Map<ArgDef, number>();
 	const texts: string[] = [];
 	let endOfOptions = false;
 	let helpSeen = false;
 
-	const active = (): Def[] =>
+	const active = (): ArgDef[] =>
 		dedupRefs(command ? [...globals, ...command.defs] : globals);
 	const fail = (message: string, exitCode: 1 | 2): ScanResult => ({
 		kind: "parse-error",
@@ -170,7 +170,7 @@ export function scanArgv(
 	const tooMany = (name: string): ScanResult => {
 		return fail(`Too many occurrences of ${name}.`, 2);
 	};
-	const storeOption = (entry: Extract<Def, { kind: "option" }>, value: string): ScanResult | undefined => {
+	const storeOption = (entry: Extract<ArgDef, { kind: "option" }>, value: string): ScanResult | undefined => {
 		if ((counts.get(entry) ?? 0) >= 1 && !entry.def.repeatable) {
 			return tooMany(entry.def.name);
 		}

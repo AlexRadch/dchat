@@ -3,27 +3,27 @@ import assert from "node:assert/strict";
 import {
 	scanArgv,
 	MAX_PARAMS,
-	type Def,
+	type ArgDef,
 	type Command,
 	type ScanResult,
 } from "../src/args.js";
 
 
 // Fake defs: every shape the grammar allows.
-const flag: Def = { kind: "flag", def: { name: "--verbose", alias: "-V" } };
-const noFlag: Def = { kind: "flag", def: { name: "--no-verbose", alias: "" } };
-const bareFlag: Def = { kind: "flag", def: { name: "--dry", alias: "" } };
-const opt: Def = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false } };
-const bareOpt: Def = {
+const flag: ArgDef = { kind: "flag", def: { name: "--verbose", alias: "-V" } };
+const noFlag: ArgDef = { kind: "flag", def: { name: "--no-verbose", alias: "" } };
+const bareFlag: ArgDef = { kind: "flag", def: { name: "--dry", alias: "" } };
+const opt: ArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false } };
+const bareOpt: ArgDef = {
 	kind: "option",
 	def: { name: "--model", alias: "", repeatable: false },
 };
-const repeatOpt: Def = {
+const repeatOpt: ArgDef = {
 	kind: "option",
 	def: { name: "--tag", alias: "-t", repeatable: true },
 };
 
-function fakeCmd(defs: Def[] = [flag, noFlag, bareFlag, opt, bareOpt, repeatOpt]): Command {
+function fakeCmd(defs: ArgDef[] = [flag, noFlag, bareFlag, opt, bareOpt, repeatOpt]): Command {
 	return { name: "fake", defs, minParams: 0, maxParams: MAX_PARAMS };
 }
 
@@ -164,7 +164,7 @@ describe("scan: run arm (no help requested)", () => {
 	});
 
 	it("no word reports facts, not a failure", () => {
-		const g: Def = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false } };
+		const g: ArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false } };
 		const cmd: Command = { name: "other", defs: [], minParams: 0, maxParams: MAX_PARAMS };
 		const r = scanArgv(["--provider", "faux"], [g], [cmd]);
 		assert.equal(r.kind, "no-command");
@@ -197,7 +197,7 @@ describe("scan: params and --", () => {
 });
 
 describe("scan: globals before command", () => {
-	const g: Def = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false } };
+	const g: ArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false } };
 
 	it("global valid before and after the word, same shape", () => {
 		const cmd: Command = { name: "c", defs: [], minParams: 0, maxParams: MAX_PARAMS };
@@ -226,7 +226,7 @@ describe("scan: globals before command", () => {
 
 describe("scan: help arms (union)", () => {
 	it("--help with no command returns general-help with parsed globals", () => {
-		const g: Def = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false } };
+		const g: ArgDef = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false } };
 		const cmd: Command = { name: "other", defs: [], minParams: 0, maxParams: MAX_PARAMS };
 		const r = scanArgv(["--provider", "faux", "--help"], [g], [cmd]);
 		assert.equal(r.kind, "general-help");

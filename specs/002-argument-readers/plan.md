@@ -2,11 +2,11 @@
 
 **Branch**: `002-argument-readers` | **Date**: 2026-11-08 | **Spec**: [spec.md](./spec.md) + [008-global-args](../008-global-args/spec.md)
 
-**Input**: Feature specification from `/specs/002-argument-readers/spec.md` (rewritten: grammar is the contract; Flag/Option/Def/Command types; globals + command table; help is a loop rule)
+**Input**: Feature specification from `/specs/002-argument-readers/spec.md` (rewritten: grammar is the contract; Flag/Option/ArgDef/Command types; globals + command table; help is a loop rule)
 
 ## Summary
 
-Build the shared Flag/Option/Def/Command types in `src/args.ts`, the global args list in `src/globalArgs.ts` (spec 008), and the real single-pass `scanArgv` loop per the 002 grammar — testable standalone on fake defs, independent of any command. `--help` / `-h` is a loop rule, never declared.
+Build the shared Flag/Option/ArgDef/Command types in `src/args.ts`, the global args list in `src/globalArgs.ts` (spec 008), and the real single-pass `scanArgv` loop per the 002 grammar — testable standalone on fake defs, independent of any command. `--help` / `-h` is a loop rule, never declared.
 
 ## Technical Context
 
@@ -33,7 +33,7 @@ Build the shared Flag/Option/Def/Command types in `src/args.ts`, the global args
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 - I. English-Only: all new code, comments, tests, spec artifacts in English. PASS.
-- II. Spec-Driven: spec `002-argument-readers` rewritten (grammar is the contract; Flag/Option/Def/Command types); globals in spec 008; plan + tasks before code; short path (clarify/checklist/analyze skipped — mechanics agreed directly, no open questions). PASS.
+- II. Spec-Driven: spec `002-argument-readers` rewritten (grammar is the contract; Flag/Option/ArgDef/Command types); globals in spec 008; plan + tasks before code; short path (clarify/checklist/analyze skipped — mechanics agreed directly, no open questions). PASS.
 - III. Test-First: `tests/scanArgv.test.ts` drives the real loop on fake defs (flags/options, aliases, repeatable, `--no-`, `=`/glued forms, `--`, four arms incl. `-h` before/after word, help-vs-error either order as `parse-error`, direct arm asserts, no help text anywhere); `npm test` + `npm run typecheck` green before review. PASS (planned).
 - IV. Simplicity/CLI: one types file + one globals file + one loop, no new deps/config/processes; ask execution parked (commented, not deleted); stdout/stderr/exit contract for help unchanged. PASS.
 - V. Secrets: key resolution untouched (`keys.ts` as-is); tests use plain strings, never real keys. PASS.
@@ -44,11 +44,11 @@ Build the shared Flag/Option/Def/Command types in `src/args.ts`, the global args
 
 - `Flag = { name: string; alias: string }` — zero values, never repeats.
 - `Option = { name: string; alias: string; repeatable: boolean }` — exactly one value per occurrence.
-- `Def = { kind: "flag"; def: Flag } | { kind: "option"; def: Option }` — `kind` lives only in the wrapper; types stay clean.
-- `Command = { name: string; defs: Def[]; minParams: number; maxParams: number }` — word + own defs + param arity (`0 <= min <= max`, integers; `max >= MAX_PARAMS` means unbounded). Scan-scoped: no `help`, no `run` (Scope).
+- `ArgDef = { kind: "flag"; def: Flag } | { kind: "option"; def: Option }` — `kind` lives only in the wrapper; types stay clean.
+- `Command = { name: string; defs: ArgDef[]; minParams: number; maxParams: number }` — word + own defs + param arity (`0 <= min <= max`, integers; `max >= MAX_PARAMS` means unbounded). Scan-scoped: no `help`, no `run` (Scope).
 - Scan payloads carry `params: string[]` — always an array, possibly empty; the scan never joins chunks, joining is the command's job.
 - Parse result: discriminated union `ScanResult = GeneralHelp | CommandHelp | Run | NoCommand | ParseFailure` — `general-help` (`{ kind; argValues }`, seen before any word), `command-help` (`{ kind; command; argValues; params }`, command known), `run` (`{ kind; command; argValues; params }`, command required — with no word the scan returns `no-command` instead, never a command-less `run`), `no-command` (`{ kind; argValues; params }`, facts only, normal outcome, NO message or exit code — the entry point owns the meaning: facts present → error, empty → help), `parse-error` (`{ kind; message; exitCode; command? }` — expected input failure, no help text; ADR-004, entry point restores the block). No arm carries help text: the entry point restores the block (`command ?` its block `: general`) and prints `message + "\n\n" + block` on stderr for errors, the block alone on stdout for helps. Each arm carries only what it needs (`argValues` map everywhere except the error arm; `command` only where resolved). Declared with `interface`s (plain structural shapes, erased at runtime — the C# `record` equivalent, not `class`: no behaviour or identity travels, the `kind` string already discriminates).
-- Globals: `GLOBAL_ARGS: Def[]` in `src/globalArgs.ts` (spec 008) — fed to the scan before any command word.
+- Globals: `GLOBAL_ARGS: ArgDef[]` in `src/globalArgs.ts` (spec 008) — fed to the scan before any command word.
 - Command registrations reference shared definitions, never copy them.
 
 ### Globals (`src/globalArgs.ts`, spec 008 — this plan)
@@ -58,7 +58,7 @@ Build the shared Flag/Option/Def/Command types in `src/args.ts`, the global args
 
 ### Entry point loop (`src/args.ts` — real scan, this plan)
 
-- One left-to-right pass over `argv`, fed `globals: Def[]` + `commands: Command[]`. Before any command word ONLY globals (+ help rule) are valid; after the word, that command's `defs` (+ globals) plus plains.
+- One left-to-right pass over `argv`, fed `globals: ArgDef[]` + `commands: Command[]`. Before any command word ONLY globals (+ help rule) are valid; after the word, that command's `defs` (+ globals) plus plains.
 - `--help` / `-h` is remembered, not terminal: already-parsed `argValues`/`params` and any resolved command are kept, the scan continues — later tokens may still fail (an error always beats help). After bare `--` it is plain text. `--help=x` → unexpected-value; `--no-help` → unknown-option. `-h ask` ≡ `ask -h` → same `command-help`.
 - Flag: zero values, `=` always error, second occurrence → too-many (`-h` repeat harmless — help needs no `counts` entry). `--no-<name>` is a separate spelled flag writing `false` to the same key.
 - Option: exactly one value (apart / `--o=v` / `-ovalue`); `-o=value` is an error; missing/empty/`-`-next → missing-value; help beside an option never fills its value slot. `repeatable: false` second occurrence → too-many; `true` accumulates in order.
@@ -75,7 +75,7 @@ The whole `ask` execution path: ask routing, defaulting, key resolution, harness
 
 ```text
 specs/002-argument-readers/
-├── spec.md               # Grammar contract, Flag/Option/Def/Command types (source of truth)
+├── spec.md               # Grammar contract, Flag/Option/ArgDef/Command types (source of truth)
 ├── plan.md               # This file
 └── tasks.md              # Ordered implementation steps
 specs/008-global-args/
@@ -87,7 +87,7 @@ specs/008-global-args/
 ```text
 src/
 ├── chat.ts               # entry point: real scan + inline help, zero option/command names in logic
-├── args.ts               # Flag / Option / Def / Command types + real scanArgv
+├── args.ts               # Flag / Option / ArgDef / Command types + real scanArgv
 ├── globalArgs.ts         # NEW (spec 008): GLOBAL_ARGS — the three global options
 ├── keys.ts               # unchanged
 ├── standardProviders.ts  # unchanged
