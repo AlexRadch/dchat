@@ -48,6 +48,8 @@ async function main(): Promise<void> {
 				return;
 			case "run": {
 				const payload: RunPayload = result.result;
+				// No commands registered yet (parked): dispatch arrives with
+				// the ask spec. Until then a valid run still has nowhere to go.
 				void payload;
 				console.error(GENERAL_HELP);
 				process.exitCode = 2;

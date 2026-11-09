@@ -6,6 +6,13 @@
 
 **Tests**: Union arms on fake defs; old short-circuit asserts replaced by arm asserts.
 
+## Phase 7: command arity
+
+- [x] T021 `src/args.ts`: `Command` gains `{ minParams; maxParams }` + `MAX_PARAMS = 1024` (unbounded marker: `max >= MAX_PARAMS` skips the upper check, no `Infinity`); `assertArityShape` throws on bad shape (programmer bug); scan returns `Too few/many params for <name>` (exit 2) on the `run` path; `command-help` skips the check.
+- [x] T022 `tests/scanArgv.test.ts`: `describe("scan: arity")` — inside/below/above bounds, unbounded with 2000 chunks, min-0 empty ok, help skips check, bad shape throws.
+- [x] T023 Verify: `npm test` + `npm run typecheck` green.
+- [x] T024 `src/askArgs.ts` + spec 009: `ask` arity `{ minParams: 1, maxParams: MAX_PARAMS }`.
+
 ## Phase 6: params instead of joined text
 
 - [x] T018 `src/args.ts`: `text?: string` → `params: string[]` (always an array, possibly empty) in `RunPayload`/`CommandHelpPayload`; scan hands over raw chunks, no `join`. `RunCommand.run` takes `params: string[]`; `commandHelp`/help logic untouched.
@@ -28,7 +35,7 @@
 ## Phase 3: ScanResult union (help remembered, not terminal)
 
 - [x] T008 `src/args.ts`: `ScanResult = GeneralHelp | CommandHelp | Run` (three `interface`s + union); scan remembers help and continues; `-h` repeat exempt from too-many (no `counts` entry); entry point `chat.ts` switches on `kind`.
-- [x] T009 `tests/scanArgv.test.ts`: general-help carries parsed globals (`--provider faux --help` → block + `options`); `-h fake` ≡ `fake -h` identical arm; help-vs-error either order (error wins; if clean, `command-help` carries parsed `options`+`text`); `run` arm carries `command?`/`options`/`text?`, never `help`.
+- [x] T009 `tests/scanArgv.test.ts`: general-help carries parsed globals (`--provider faux --help` → `options`); `-h fake` ≡ `fake -h` identical arm; help-vs-error either order (error wins; if clean, `command-help` carries parsed `options`+`params`); `run` arm carries required `command` + `options`/`params`, never `help`.
 - [x] T010 Verify: `npm test` + `npm run typecheck` green; live `--help`, `ask -h` (no commands: unknown-command path), empty `argv`.
 
 ## Phase 1: Types + globals + real loop

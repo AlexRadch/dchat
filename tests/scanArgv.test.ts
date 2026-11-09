@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
 	scanArgv,
-	ParseError,
+	MAX_PARAMS,
 	type Def,
 	type Command,
 	type ScanResult,
@@ -24,7 +24,7 @@ const repeatOpt: Def = {
 };
 
 function fakeCmd(defs: Def[] = [flag, noFlag, bareFlag, opt, bareOpt, repeatOpt]): Command {
-	return { name: "fake", defs };
+	return { name: "fake", defs, minParams: 0, maxParams: MAX_PARAMS };
 }
 
 // ADR-003 + ADR-004: kind lives on the union arm; expected failures return
@@ -154,22 +154,24 @@ describe("scan: options", () => {
 });
 
 describe("scan: run arm (no help requested)", () => {
-	it("carries command?, options, params — never help", () => {
+	it("carries command, options, params — never help", () => {
 		const r = scanArgv(["fake", "--provider", "faux", "hi"], [], [fakeCmd()]);
 		assert.equal(r.kind, "run");
-		assert.equal(r.result.command?.name, "fake");
+		assert.equal(r.result.command.name, "fake");
 		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
 		assert.deepEqual(r.result.params, ["hi"]);
 		assert.ok(!("help" in r));
 	});
 
-	it("run without command carries parsed globals only", () => {
+	it("run without command is a parse-error, not a run", () => {
 		const g: Def = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false } };
-		const cmd: Command = { name: "other", defs: [] };
+		const cmd: Command = { name: "other", defs: [], minParams: 0, maxParams: MAX_PARAMS };
 		const r = scanArgv(["--provider", "faux"], [g], [cmd]);
-		assert.equal(r.kind, "run");
+		assert.equal(r.kind, "parse-error");
+		if (r.kind !== "parse-error") return;
+		assert.equal(r.result.message, "No command.");
+		assert.equal(r.result.exitCode, 2);
 		assert.equal(r.result.command, undefined);
-		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
 	});
 });
 
@@ -198,16 +200,16 @@ describe("scan: globals before command", () => {
 	const g: Def = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false } };
 
 	it("global valid before and after the word, same shape", () => {
-		const cmd: Command = { name: "c", defs: [] };
+		const cmd: Command = { name: "c", defs: [], minParams: 0, maxParams: MAX_PARAMS };
 		const a = scanArgv(["--provider", "faux", "c", "hi"], [g], [cmd]);
 		const b = scanArgv(["c", "--provider", "faux", "hi"], [g], [cmd]);
 		assert.deepEqual(a.result.options, { "--provider": ["faux"] });
 		assert.deepEqual(a.result.options, b.result.options);
-		assert.equal(a.result.command?.name, "c");
+		assert.equal(a.result.command.name, "c");
 	});
 
 	it("command-owned spelling before its word fails immediately", () => {
-		const cmd: Command = { name: "c", defs: [g] };
+		const cmd: Command = { name: "c", defs: [g], minParams: 0, maxParams: MAX_PARAMS };
 		expectParseError(
 			scanArgv(["--provider", "faux", "c"], [], [cmd]),
 			"Unknown option: --provider.",
@@ -216,7 +218,7 @@ describe("scan: globals before command", () => {
 	});
 
 	it("command referencing the same global entry works after the word", () => {
-		const cmd: Command = { name: "c", defs: [g] };
+		const cmd: Command = { name: "c", defs: [g], minParams: 0, maxParams: MAX_PARAMS };
 		const r = scanArgv(["c", "--provider", "faux"], [g], [cmd]);
 		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
 	});
@@ -225,7 +227,7 @@ describe("scan: globals before command", () => {
 describe("scan: help arms (union)", () => {
 	it("--help with no command returns general-help with parsed globals", () => {
 		const g: Def = { kind: "option", def: { name: "--provider", alias: "-p", repeatable: false } };
-		const cmd: Command = { name: "other", defs: [] };
+		const cmd: Command = { name: "other", defs: [], minParams: 0, maxParams: MAX_PARAMS };
 		const r = scanArgv(["--provider", "faux", "--help"], [g], [cmd]);
 		assert.equal(r.kind, "general-help");
 		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
@@ -315,11 +317,66 @@ describe("scan: errors carry the relevant help", () => {
 });
 
 describe("scan: empty argv", () => {
-	it("is a run with no command, no options, no params", () => {
+	it("empty argv with no word is a parse-error", () => {
 		const r = scanArgv([], [], [fakeCmd()]);
+		assert.equal(r.kind, "parse-error");
+		if (r.kind !== "parse-error") return;
+		assert.equal(r.result.message, "No command.");
+		assert.equal(r.result.exitCode, 2);
+	});
+});
+
+describe("scan: arity", () => {
+	function arityCmd(minParams: number, maxParams: number): Command {
+		return { name: "fake", defs: [], minParams, maxParams };
+	}
+
+	it("run inside arity passes", () => {
+		const r = scanArgv(["fake", "a", "b"], [], [arityCmd(1, 2)]);
 		assert.equal(r.kind, "run");
-		assert.equal(r.result.command, undefined);
-		assert.deepEqual(r.result.options, {});
-		assert.deepEqual(r.result.params, []);
+	});
+
+	it("too few params fails as parse-error", () => {
+		const r = scanArgv(["fake"], [], [arityCmd(1, 2)]);
+		assert.equal(r.kind, "parse-error");
+		if (r.kind !== "parse-error") return;
+		assert.equal(r.result.message, "Too few params for fake.");
+		assert.equal(r.result.exitCode, 2);
+		assert.equal(r.result.command?.name, "fake");
+	});
+
+	it("too many params fails as parse-error", () => {
+		const r = scanArgv(["fake", "a", "b", "c"], [], [arityCmd(1, 2)]);
+		assert.equal(r.kind, "parse-error");
+		if (r.kind !== "parse-error") return;
+		assert.equal(r.result.message, "Too many params for fake.");
+		assert.equal(r.result.exitCode, 2);
+	});
+
+	it("maxParams >= MAX_PARAMS means unbounded", () => {
+		const chunks = Array.from({ length: 2000 }, (_, k) => `p${k}`);
+		const r = scanArgv(["fake", ...chunks], [], [arityCmd(0, MAX_PARAMS)]);
+		assert.equal(r.kind, "run");
+	});
+
+	it("min 0 allows empty params", () => {
+		const r = scanArgv(["fake"], [], [arityCmd(0, MAX_PARAMS)]);
+		assert.equal(r.kind, "run");
+	});
+
+	it("help skips the arity check", () => {
+		const r = scanArgv(["fake", "-h"], [], [arityCmd(1, 2)]);
+		assert.equal(r.kind, "command-help");
+	});
+
+	it("bad arity shape throws (programmer bug)", () => {
+		assert.throws(
+			() => scanArgv(["fake"], [], [{ name: "fake", defs: [], minParams: 2, maxParams: 1 }]),
+			/Bad arity for fake: min > max\./,
+		);
+		assert.throws(
+			() => scanArgv(["fake"], [], [{ name: "fake", defs: [], minParams: -1, maxParams: 1 }]),
+			/Bad arity for fake: bounds must be >= 0\./,
+		);
 	});
 });

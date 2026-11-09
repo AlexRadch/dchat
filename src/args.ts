@@ -1,6 +1,11 @@
 // Shared CLI shape (spec 002): Flag / Option / Def / Command, single-scan parser.
 // --help / -h is a loop rule, never declared in any defs list.
 // scanArgv is standalone: testable on fake defs, independent of any command.
+// The largest params count any command accepts. Doubles as the infinity
+// marker: maxParams >= MAX_PARAMS means "no upper bound" (unbounded arity).
+// A plain integer, not Infinity — it fits every language's int type
+// (1024 argv entries never happen in practice).
+export const MAX_PARAMS = 1024;
 
 export interface Flag {
 	name: string;
@@ -19,6 +24,12 @@ export type Def = { kind: "flag"; def: Flag } | { kind: "option"; def: Option };
 export interface Command {
 	name: string;
 	defs: Def[];
+	// Param arity: how many param chunks the command accepts.
+	// Both bounds required, integers, 0 <= minParams <= maxParams.
+	// maxParams >= MAX_PARAMS means unbounded (no upper check);
+	// ask uses { minParams: 1, maxParams: MAX_PARAMS }.
+	minParams: number;
+	maxParams: number;
 }
 
 // NOTE: execution (`run`) and help texts live above the scan, in the entry
@@ -36,7 +47,7 @@ export interface CommandHelpPayload {
 }
 
 export interface RunPayload {
-	command?: Command;
+	command: Command;
 	options: Record<string, boolean | string[]>;
 	params: string[];
 }
@@ -100,6 +111,21 @@ function assertUnique(active: Def[], label: string): void {
 	}
 }
 
+// Arity shape is a programmer bug (negative, min > max), so it throws.
+// Bad counts on the line are expected input failures (parse-error arm).
+function assertArityShape(command: Command): void {
+	const { minParams, maxParams } = command;
+	if (!Number.isInteger(minParams) || !Number.isInteger(maxParams)) {
+		throw new Error(`Bad arity for ${command.name}: bounds must be integers.`);
+	}
+	if (minParams < 0 || maxParams < 0) {
+		throw new Error(`Bad arity for ${command.name}: bounds must be >= 0.`);
+	}
+	if (minParams > maxParams) {
+		throw new Error(`Bad arity for ${command.name}: min > max.`);
+	}
+}
+
 function findExact(active: Def[], token: string): Def | undefined {
 	return active.find((d) => token === d.def.name || (d.def.alias !== "" && token === d.def.alias));
 }
@@ -116,6 +142,7 @@ export function scanArgv(
 	assertUnique(dedupRefs(globals), "globals");
 	for (const c of commands) {
 		assertUnique(dedupRefs([...globals, ...c.defs]), `command ${c.name}`);
+		assertArityShape(c);
 	}
 	let command: Command | undefined;
 	const options: Record<string, boolean | string[]> = {};
@@ -238,6 +265,20 @@ export function scanArgv(
 		return command
 			? { kind: "command-help", result: { command, options, params: texts } }
 			: { kind: "general-help", result: { options } };
+	}
+	// Arity is checked by the scan: a run is valid only when the chunk count
+	// fits [minParams, maxParams]; maxParams >= MAX_PARAMS means unbounded.
+	// command-help skips the check (help works with any count).
+	// A run always carries a command: with no word there is nothing to
+	// dispatch to, so that path returns parse-error instead.
+	if (!command) {
+		return fail("No command.", 2);
+	}
+	if (texts.length < command.minParams) {
+		return fail(`Too few params for ${command.name}.`, 2);
+	}
+	if (command.maxParams < MAX_PARAMS && texts.length > command.maxParams) {
+		return fail(`Too many params for ${command.name}.`, 2);
 	}
 	return { kind: "run", result: { command, options, params: texts } };
 }
