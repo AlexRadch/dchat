@@ -154,12 +154,12 @@ describe("scan: options", () => {
 });
 
 describe("scan: run arm (no help requested)", () => {
-	it("carries command?, options, text? — never help", () => {
+	it("carries command?, options, params — never help", () => {
 		const r = scanArgv(["fake", "--provider", "faux", "hi"], [], [fakeCmd()]);
 		assert.equal(r.kind, "run");
 		assert.equal(r.result.command?.name, "fake");
 		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
-		assert.equal(r.result.text, "hi");
+		assert.deepEqual(r.result.params, ["hi"]);
 		assert.ok(!("help" in r));
 	});
 
@@ -173,22 +173,22 @@ describe("scan: run arm (no help requested)", () => {
 	});
 });
 
-describe("scan: text and --", () => {
-	it("plains before and after options join into one text", () => {
+describe("scan: params and --", () => {
+	it("plains before and after options stay as ordered chunks", () => {
 		const r = scanArgv(["fake", "hello", "--provider", "faux", "world"], [], [fakeCmd()]);
-		assert.equal(r.result.text, "hello world");
+		assert.deepEqual(r.result.params, ["hello", "world"]);
 		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
 	});
 
-	it("option takes its following plain before text does", () => {
+	it("option takes its following plain before params do", () => {
 		const r = scanArgv(["fake", "--provider", "faux"], [], [fakeCmd()]);
 		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
-		assert.equal(r.result.text, undefined);
+		assert.deepEqual(r.result.params, []);
 	});
 
-	it("-- ends options: everything after is text, even -x and --help", () => {
+	it("-- ends options: everything after is params, even -x and --help", () => {
 		const r = scanArgv(["fake", "--", "--provider", "--help", "-x"], [], [fakeCmd()]);
-		assert.equal(r.result.text, "--provider --help -x");
+		assert.deepEqual(r.result.params, ["--provider", "--help", "-x"]);
 		assert.deepEqual(r.result.options, {});
 		assert.equal(r.kind, "run");
 	});
@@ -241,13 +241,13 @@ describe("scan: help arms (union)", () => {
 		assert.deepEqual(a, b);
 	});
 
-	it("command-help carries parsed options and text", () => {
+	it("command-help carries parsed options and params", () => {
 		const r = scanArgv(["fake", "--provider", "faux", "hi", "-h"], [], [fakeCmd()]);
 		assert.equal(r.kind, "command-help");
 		if (r.kind !== "command-help") return;
 		assert.equal(r.result.command.name, "fake");
 		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
-		assert.equal(r.result.text, "hi");
+		assert.deepEqual(r.result.params, ["hi"]);
 	});
 
 
@@ -315,11 +315,11 @@ describe("scan: errors carry the relevant help", () => {
 });
 
 describe("scan: empty argv", () => {
-	it("is a run with no command, no options, no text", () => {
+	it("is a run with no command, no options, no params", () => {
 		const r = scanArgv([], [], [fakeCmd()]);
 		assert.equal(r.kind, "run");
 		assert.equal(r.result.command, undefined);
 		assert.deepEqual(r.result.options, {});
-		assert.equal(r.result.text, undefined);
+		assert.deepEqual(r.result.params, []);
 	});
 });

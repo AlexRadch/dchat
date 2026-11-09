@@ -6,6 +6,12 @@
 
 **Tests**: Union arms on fake defs; old short-circuit asserts replaced by arm asserts.
 
+## Phase 6: params instead of joined text
+
+- [x] T018 `src/args.ts`: `text?: string` → `params: string[]` (always an array, possibly empty) in `RunPayload`/`CommandHelpPayload`; scan hands over raw chunks, no `join`. `RunCommand.run` takes `params: string[]`; `commandHelp`/help logic untouched.
+- [x] T019 `tests/scanArgv.test.ts`: chunk asserts (`["hello", "world"]`, `[]` when none); joining covered by command specs, not here.
+- [x] T020 Verify: `npm test` + `npm run typecheck` green.
+
 ## Phase 5: abstract scan (no help text, no execution in args.ts)
 
 - [x] T014 `src/args.ts`: `Command` loses `help`; `RunCommand` moved to the entry point; help payloads lose `help`; `scanArgv` loses the `generalHelp` parameter. Spec Scope section states the scan is exhaustive and lists what MUST NOT be pulled in.

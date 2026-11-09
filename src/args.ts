@@ -23,7 +23,7 @@ export interface Command {
 
 // NOTE: execution (`run`) and help texts live above the scan, in the entry
 // point and command modules — never here. The scan only resolves names,
-// defs, options and text.
+// defs, options and param chunks (joining them is the command's job).
 
 export interface GeneralHelpPayload {
 	options: Record<string, boolean | string[]>;
@@ -32,13 +32,13 @@ export interface GeneralHelpPayload {
 export interface CommandHelpPayload {
 	command: Command;
 	options: Record<string, boolean | string[]>;
-	text?: string;
+	params: string[];
 }
 
 export interface RunPayload {
 	command?: Command;
 	options: Record<string, boolean | string[]>;
-	text?: string;
+	params: string[];
 }
 
 export interface ParseErrorPayload {
@@ -230,14 +230,14 @@ export function scanArgv(
 		texts.push(t);
 		i++;
 	}
-	const text = texts.length > 0 ? texts.join(" ") : undefined;
+	// No joining here: the scan hands over raw chunks in order; the command
+	// joins them as it needs (ask joins with one space).
+	// Help is remembered, not terminal: an error above already returned, so
+	// `-h word` and `word -h` resolve to the identical arm here.
 	if (helpSeen) {
-		// Help selects which block to show, never hides an error (errors throw
-		// above). `-h word` and `word -h` resolve the same: the word is still
-		// scanned, so both land on the identical arm.
 		return command
-				? { kind: "command-help", result: { command, options, text } }
-				: { kind: "general-help", result: { options } };
-		}
-		return { kind: "run", result: { command, options, text } };
+			? { kind: "command-help", result: { command, options, params: texts } }
+			: { kind: "general-help", result: { options } };
+	}
+	return { kind: "run", result: { command, options, params: texts } };
 }

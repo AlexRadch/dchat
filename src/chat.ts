@@ -16,11 +16,11 @@ const GENERAL_HELP = [
 ].join("\n");
 
 // Execution and help texts live here, above the scan — never in args.ts.
-// The scan resolves names/defs/options/text; this module adds help blocks
-// and dispatch. Undocumented for now; the specs land with the ask spec.
+// The scan resolves names/defs/options/param chunks; this module adds help
+// blocks and dispatch. Undocumented for now; the specs land with the ask spec.
 export interface RunCommand extends Command {
 	help: string;
-	run: (options: Record<string, boolean | string[]>, text?: string) => void | Promise<void>;
+	run: (options: Record<string, boolean | string[]>, params: string[]) => void | Promise<void>;
 }
 
 function commandHelp(command: Command): string {
