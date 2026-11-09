@@ -49,23 +49,23 @@ describe("scan: flags", () => {
 	it("long and alias both store true under the long name", () => {
 		const a = scanArgv(["fake", "--verbose"], [], [fakeCmd()]);
 		const b = scanArgv(["fake", "-V"], [], [fakeCmd()]);
-		assert.deepEqual(a.result.options, { "--verbose": true });
-		assert.deepEqual(b.result.options, { "--verbose": true });
+		assert.deepEqual(a.result.argValues, { "--verbose": true });
+		assert.deepEqual(b.result.argValues, { "--verbose": true });
 	});
 
 	it("flag without alias works", () => {
 		const r = scanArgv(["fake", "--dry"], [], [fakeCmd()]);
-		assert.deepEqual(r.result.options, { "--dry": true });
+		assert.deepEqual(r.result.argValues, { "--dry": true });
 	});
 
 	it("--no- form writes false to the positive key", () => {
 		const r = scanArgv(["fake", "--no-verbose"], [], [fakeCmd()]);
-		assert.deepEqual(r.result.options, { "--verbose": false });
+		assert.deepEqual(r.result.argValues, { "--verbose": false });
 	});
 
 	it("--flag then --no-flag: last wins, no error", () => {
 		const r = scanArgv(["fake", "--verbose", "--no-verbose"], [], [fakeCmd()]);
-		assert.deepEqual(r.result.options, { "--verbose": false });
+		assert.deepEqual(r.result.argValues, { "--verbose": false });
 	});
 
 	it("second identical flag fails as too-many", () => {
@@ -97,23 +97,23 @@ describe("scan: options", () => {
 	it("apart and alias forms store one-element arrays", () => {
 		const a = scanArgv(["fake", "--provider", "faux"], [], [fakeCmd()]);
 		const b = scanArgv(["fake", "-p", "faux"], [], [fakeCmd()]);
-		assert.deepEqual(a.result.options, { "--provider": ["faux"] });
-		assert.deepEqual(b.result.options, { "--provider": ["faux"] });
+		assert.deepEqual(a.result.argValues, { "--provider": ["faux"] });
+		assert.deepEqual(b.result.argValues, { "--provider": ["faux"] });
 	});
 
 	it("option without alias works", () => {
 		const r = scanArgv(["fake", "--model", "m1"], [], [fakeCmd()]);
-		assert.deepEqual(r.result.options, { "--model": ["m1"] });
+		assert.deepEqual(r.result.argValues, { "--model": ["m1"] });
 	});
 
 	it("--opt=v stores the glued value", () => {
 		const r = scanArgv(["fake", "--provider=faux"], [], [fakeCmd()]);
-		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
+		assert.deepEqual(r.result.argValues, { "--provider": ["faux"] });
 	});
 
 	it("-ovalue stores the glued value", () => {
 		const r = scanArgv(["fake", "-pfaux"], [], [fakeCmd()]);
-		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
+		assert.deepEqual(r.result.argValues, { "--provider": ["faux"] });
 	});
 
 	it("-o=value is an error, not a glued value", () => {
@@ -149,7 +149,7 @@ describe("scan: options", () => {
 			2, "fake",
 		);
 		const r = scanArgv(["fake", "--tag", "a", "--tag", "b"], [], [fakeCmd()]);
-		assert.deepEqual(r.result.options, { "--tag": ["a", "b"] });
+		assert.deepEqual(r.result.argValues, { "--tag": ["a", "b"] });
 	});
 });
 
@@ -158,7 +158,7 @@ describe("scan: run arm (no help requested)", () => {
 		const r = scanArgv(["fake", "--provider", "faux", "hi"], [], [fakeCmd()]);
 		assert.equal(r.kind, "run");
 		assert.equal(r.result.command.name, "fake");
-		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
+		assert.deepEqual(r.result.argValues, { "--provider": ["faux"] });
 		assert.deepEqual(r.result.params, ["hi"]);
 		assert.ok(!("help" in r));
 	});
@@ -169,7 +169,7 @@ describe("scan: run arm (no help requested)", () => {
 		const r = scanArgv(["--provider", "faux"], [g], [cmd]);
 		assert.equal(r.kind, "no-command");
 		if (r.kind !== "no-command") return;
-		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
+		assert.deepEqual(r.result.argValues, { "--provider": ["faux"] });
 		assert.deepEqual(r.result.params, []);
 		assert.ok(!("exitCode" in r.result));
 	});
@@ -179,19 +179,19 @@ describe("scan: params and --", () => {
 	it("plains before and after options stay as ordered chunks", () => {
 		const r = scanArgv(["fake", "hello", "--provider", "faux", "world"], [], [fakeCmd()]);
 		assert.deepEqual(r.result.params, ["hello", "world"]);
-		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
+		assert.deepEqual(r.result.argValues, { "--provider": ["faux"] });
 	});
 
 	it("option takes its following plain before params do", () => {
 		const r = scanArgv(["fake", "--provider", "faux"], [], [fakeCmd()]);
-		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
+		assert.deepEqual(r.result.argValues, { "--provider": ["faux"] });
 		assert.deepEqual(r.result.params, []);
 	});
 
 	it("-- ends options: everything after is params, even -x and --help", () => {
 		const r = scanArgv(["fake", "--", "--provider", "--help", "-x"], [], [fakeCmd()]);
 		assert.deepEqual(r.result.params, ["--provider", "--help", "-x"]);
-		assert.deepEqual(r.result.options, {});
+		assert.deepEqual(r.result.argValues, {});
 		assert.equal(r.kind, "run");
 	});
 });
@@ -203,8 +203,8 @@ describe("scan: globals before command", () => {
 		const cmd: Command = { name: "c", defs: [], minParams: 0, maxParams: MAX_PARAMS };
 		const a = scanArgv(["--provider", "faux", "c", "hi"], [g], [cmd]);
 		const b = scanArgv(["c", "--provider", "faux", "hi"], [g], [cmd]);
-		assert.deepEqual(a.result.options, { "--provider": ["faux"] });
-		assert.deepEqual(a.result.options, b.result.options);
+		assert.deepEqual(a.result.argValues, { "--provider": ["faux"] });
+		assert.deepEqual(a.result.argValues, b.result.argValues);
 		assert.equal(a.result.command.name, "c");
 	});
 
@@ -220,7 +220,7 @@ describe("scan: globals before command", () => {
 	it("command referencing the same global entry works after the word", () => {
 		const cmd: Command = { name: "c", defs: [g], minParams: 0, maxParams: MAX_PARAMS };
 		const r = scanArgv(["c", "--provider", "faux"], [g], [cmd]);
-		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
+		assert.deepEqual(r.result.argValues, { "--provider": ["faux"] });
 	});
 });
 
@@ -230,7 +230,7 @@ describe("scan: help arms (union)", () => {
 		const cmd: Command = { name: "other", defs: [], minParams: 0, maxParams: MAX_PARAMS };
 		const r = scanArgv(["--provider", "faux", "--help"], [g], [cmd]);
 		assert.equal(r.kind, "general-help");
-		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
+		assert.deepEqual(r.result.argValues, { "--provider": ["faux"] });
 	});
 
 	it("-h before and after the word return the identical command-help", () => {
@@ -248,7 +248,7 @@ describe("scan: help arms (union)", () => {
 		assert.equal(r.kind, "command-help");
 		if (r.kind !== "command-help") return;
 		assert.equal(r.result.command.name, "fake");
-		assert.deepEqual(r.result.options, { "--provider": ["faux"] });
+		assert.deepEqual(r.result.argValues, { "--provider": ["faux"] });
 		assert.deepEqual(r.result.params, ["hi"]);
 	});
 
@@ -321,7 +321,7 @@ describe("scan: empty argv", () => {
 		const r = scanArgv([], [], [fakeCmd()]);
 		assert.equal(r.kind, "no-command");
 		if (r.kind !== "no-command") return;
-		assert.deepEqual(r.result.options, {});
+		assert.deepEqual(r.result.argValues, {});
 		assert.deepEqual(r.result.params, []);
 	});
 });

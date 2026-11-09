@@ -2,7 +2,7 @@
 // Ask execution is PARKED (commented, not deleted) until the ask command spec
 // re-enables it. Until then the command table holds no enabled commands:
 // any command word fails as unknown, only global --help works.
-import { scanArgv, type Command, type RunPayload } from "./args.js";
+import { scanArgv, type Command, type ArgValues, type RunPayload } from "./args.js";
 import { GLOBAL_ARGS } from "./globalArgs.js";
 
 const GENERAL_HELP = [
@@ -20,7 +20,7 @@ const GENERAL_HELP = [
 // blocks and dispatch. Undocumented for now; the specs land with the ask spec.
 export interface RunCommand extends Command {
 	help: string;
-	run: (options: Record<string, boolean | string[]>, params: string[]) => void | Promise<void>;
+	run: (argValues: ArgValues, params: string[]) => void | Promise<void>;
 }
 
 function commandHelp(command: Command): string {
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
 				// error with the general block (exit 2); facts empty → plain
 				// general help on stdout (exit 0).
 				const empty =
-					facts.params.length === 0 && Object.keys(facts.options).length === 0;
+					facts.params.length === 0 && Object.keys(facts.argValues).length === 0;
 				if (empty) {
 					console.log(GENERAL_HELP);
 					return;

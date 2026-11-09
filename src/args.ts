@@ -7,6 +7,10 @@
 // (1024 argv entries never happen in practice).
 export const MAX_PARAMS = 1024;
 
+// Single named map for every flag state and option value, declared once
+// and used by every result arm: flags store booleans, options store arrays.
+export type ArgValues = Record<string, boolean | string[]>;
+
 export interface Flag {
 	name: string;
 	alias: string;
@@ -37,23 +41,23 @@ export interface Command {
 // defs, options and param chunks (joining them is the command's job).
 
 export interface GeneralHelpPayload {
-	options: Record<string, boolean | string[]>;
+	argValues: ArgValues;
 }
 
 export interface CommandHelpPayload {
 	command: Command;
-	options: Record<string, boolean | string[]>;
+	argValues: ArgValues;
 	params: string[];
 }
 
 export interface NoCommandPayload {
-	options: Record<string, boolean | string[]>;
+	argValues: ArgValues;
 	params: string[];
 }
 
 export interface RunPayload {
 	command: Command;
-	options: Record<string, boolean | string[]>;
+	argValues: ArgValues;
 	params: string[];
 }
 
@@ -151,7 +155,7 @@ export function scanArgv(
 		assertArityShape(c);
 	}
 	let command: Command | undefined;
-	const options: Record<string, boolean | string[]> = {};
+	const argValues: ArgValues = {};
 	const counts = new Map<Def, number>();
 	const texts: string[] = [];
 	let endOfOptions = false;
@@ -171,8 +175,8 @@ export function scanArgv(
 			return tooMany(entry.def.name);
 		}
 		counts.set(entry, (counts.get(entry) ?? 0) + 1);
-		const prev = options[entry.def.name];
-		options[entry.def.name] = [...(Array.isArray(prev) ? prev : []), value];
+		const prev = argValues[entry.def.name];
+		argValues[entry.def.name] = [...(Array.isArray(prev) ? prev : []), value];
 	};
 
 	let i = 0;
@@ -200,7 +204,7 @@ export function scanArgv(
 				if (exact.kind === "flag") {
 					if ((counts.get(exact) ?? 0) >= 1) return tooMany(exact.def.name);
 					counts.set(exact, 1);
-					options[storageKey(exact)] = exact.def.name.startsWith("--no-") ? false : true;
+					argValues[storageKey(exact)] = exact.def.name.startsWith("--no-") ? false : true;
 					i++;
 					continue;
 				}
@@ -269,8 +273,8 @@ export function scanArgv(
 	// `-h word` and `word -h` resolve to the identical arm here.
 	if (helpSeen) {
 		return command
-			? { kind: "command-help", result: { command, options, params: texts } }
-			: { kind: "general-help", result: { options } };
+			? { kind: "command-help", result: { command, argValues, params: texts } }
+			: { kind: "general-help", result: { argValues } };
 	}
 	// Arity is checked by the scan: a run is valid only when the chunk count
 	// fits [minParams, maxParams]; maxParams >= MAX_PARAMS means unbounded.
@@ -280,7 +284,7 @@ export function scanArgv(
 	// point decides (params present: error; empty: plain help, exit 0).
 	// No exitCode here: a missing word is a normal outcome, not a failure.
 	if (!command) {
-		return { kind: "no-command", result: { options, params: texts } };
+		return { kind: "no-command", result: { argValues, params: texts } };
 	}
 	if (texts.length < command.minParams) {
 		return fail(`Too few params for ${command.name}.`, 2);
@@ -288,5 +292,5 @@ export function scanArgv(
 	if (command.maxParams < MAX_PARAMS && texts.length > command.maxParams) {
 		return fail(`Too many params for ${command.name}.`, 2);
 	}
-	return { kind: "run", result: { command, options, params: texts } };
+	return { kind: "run", result: { command, argValues, params: texts } };
 }

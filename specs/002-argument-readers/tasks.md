@@ -6,9 +6,14 @@
 
 **Tests**: Union arms on fake defs; old short-circuit asserts replaced by arm asserts.
 
+## Phase 9: argValues rename
+
+- [x] T029 `src/args.ts`: one named map type `ArgValues = Record<string, boolean | string[]>` declared once; every `options: Record<...>` field renamed to `argValues: ArgValues` (all four fact arms + `RunCommand.run` + scan locals); `chat.ts` + `tests/scanArgv.test.ts` updated to the new field.
+- [x] T030 Verify: `npm test` + `npm run typecheck` green.
+
 ## Phase 8: no-command arm (missing word is a normal outcome)
 
-- [x] T025 `src/args.ts`: fifth arm `no-command` (`{ kind; result: { options; params } }` — facts only, NO message or exit code); `!command` returns it instead of `parse-error`; `NoCommandPayload` added to `ScanResult`.
+- [x] T025 `src/args.ts`: fifth arm `no-command` (`{ kind; result: { argValues; params } }` — facts only, NO message or exit code); `!command` returns it instead of `parse-error`; `NoCommandPayload` added to `ScanResult`.
 - [x] T026 `src/chat.ts`: `no-command` case (facts present → `No command.` + general block stderr exit 2; facts empty → general block stdout exit 0); pre-scan empty-`argv` shortcut removed — empty input scans to `no-command`.
 - [x] T027 `tests/scanArgv.test.ts`: `describe("scan: no-command")` — facts carried, no exitCode, empty-argv → empty facts; `run` never appears without a word.
 - [x] T028 Verify: `npm test` + `npm run typecheck` green.
@@ -42,12 +47,12 @@
 ## Phase 3: ScanResult union (help remembered, not terminal)
 
 - [x] T008 `src/args.ts`: `ScanResult = GeneralHelp | CommandHelp | Run` (three `interface`s + union); scan remembers help and continues; `-h` repeat exempt from too-many (no `counts` entry); entry point `chat.ts` switches on `kind`.
-- [x] T009 `tests/scanArgv.test.ts`: general-help carries parsed globals (`--provider faux --help` → `options`); `-h fake` ≡ `fake -h` identical arm; help-vs-error either order (error wins; if clean, `command-help` carries parsed `options`+`params`); `run` arm carries required `command` + `options`/`params`, never `help`.
+- [x] T009 `tests/scanArgv.test.ts`: general-help carries parsed globals (`--provider faux --help` → `argValues`); `-h fake` ≡ `fake -h` identical arm; help-vs-error either order (error wins; if clean, `command-help` carries parsed `argValues`+`params`); `run` arm carries required `command` + `argValues`/`params`, never `help`.
 - [x] T010 Verify: `npm test` + `npm run typecheck` green; live `--help`, `ask -h` (no commands: unknown-command path), empty `argv`.
 
 ## Phase 1: Types + globals + real loop
 
-- [x] T001 `src/args.ts`: `Flag` (`{ name, alias }`), `Option` (`{ name, alias, repeatable }`), `Def` wrapper with `kind`, `Command` (`{ name, defs, help }`). Scan result `options: Record<string, boolean | string[]>`.
+- [x] T001 `src/args.ts`: `Flag` (`{ name, alias }`), `Option` (`{ name, alias, repeatable }`), `Def` wrapper with `kind`, `Command` (`{ name, defs, help }`). Scan result `argValues: ArgValues`.
 - [x] T002 `src/globalArgs.ts`: `GLOBAL_ARGS` — `--provider` / `-p`, `--key` / `-k`, `--model` / `-m` (all options, `repeatable: false`). Entry point passes it as the scan's globals; `--help` never listed (loop rule).
 - [x] T003 Real `scanArgv` in `src/args.ts` per the 002 grammar: globals-only before command; flags/options/plains freely after; `=`/glued forms; `--`; help short-circuit; repeats; joined text; errors with help blocks + exit codes.
 - [x] T004 `tests/scanArgv.test.ts` on fake defs (no real commands): flag with/without alias, `--no-` on/off, option with/without alias, `repeatable` accumulate vs too-many, `=`/glued/missing/empty/`-`-next, `-o=value` error, `--` text incl. `-x`, help before/after/after-`--`/`--help=x`/`--no-help`, unknown global vs unknown command-option vs unknown command, empty `argv`.
