@@ -6,6 +6,13 @@
 
 **Tests**: Union arms on fake defs; old short-circuit asserts replaced by arm asserts.
 
+## Phase 10: generals with global marker, help as ordinary flag
+
+- [x] T031 `src/args.ts`: `ArgDef` gains `global: boolean` (wrapper-only) + `skipArity?: boolean` on the flag arm; `GeneralHelpPayload`/`CommandHelpPayload` removed, `ScanResult = Run | NoCommand | ParseFailure`; no hard-coded `--help`/`-h` spellings; visible defs = generals before word, own-first-then-`global: true` after; re-check collected tokens on word resolve (dumb, never compared); arity skipped when a set flag carries `skipArity`.
+- [x] T032 `src/globalArgs.ts` → `src/generalArgs.ts`: `GENERAL_ARGS` (three options `global: false` + `helpFlag` flag `global: true, skipArity: true`); `src/chat.ts`: entry point passes generals, reads help flag first in `run`/`no-command` (set → block stdout exit 0, handler never called); `GLOBAL_ARGS` name gone from code.
+- [x] T033 `tests/scanArgv.test.ts`: help cases on flag entries (before/after word, repeat fails, `=` fails, after `--` is text, error beats flag, re-check on word, `skipArity` skips arity); help payloads/arms asserts removed.
+- [x] T034 Specs 008 (generals table, `global` column, help row), 002 (this plan's items), README registry; verify: `npm test` + `npm run typecheck` green.
+
 ## Phase 9: argValues rename
 
 - [x] T029 `src/args.ts`: one named map type `ArgValues = Record<string, boolean | string[]>` declared once; every `options: Record<...>` field renamed to `argValues: ArgValues` (all four fact arms + `RunCommand.run` + scan locals); `chat.ts` + `tests/scanArgv.test.ts` updated to the new field.
@@ -53,7 +60,7 @@
 ## Phase 1: Types + globals + real loop
 
 - [x] T001 `src/args.ts`: `Flag` (`{ name, alias }`), `Option` (`{ name, alias, repeatable }`), `ArgDef` wrapper with `kind`, `Command` (`{ name, defs, help }`). Scan result `argValues: ArgValues`.
-- [x] T002 `src/globalArgs.ts`: `GLOBAL_ARGS` — `--provider` / `-p`, `--key` / `-k`, `--model` / `-m` (all options, `repeatable: false`). Entry point passes it as the scan's globals; `--help` never listed (loop rule).
+- [x] T002 `src/globalArgs.ts` (later renamed `src/generalArgs.ts`): `GLOBAL_ARGS` (later `GENERAL_ARGS`) — `--provider` / `-p`, `--key` / `-k`, `--model` / `-m` (all options, `repeatable: false`). Entry point passes it as the scan's generals; `--help` listed from phase 10 as `helpFlag`.
 - [x] T003 Real `scanArgv` in `src/args.ts` per the 002 grammar: globals-only before command; flags/options/plains freely after; `=`/glued forms; `--`; help short-circuit; repeats; joined text; errors with help blocks + exit codes.
 - [x] T004 `tests/scanArgv.test.ts` on fake defs (no real commands): flag with/without alias, `--no-` on/off, option with/without alias, `repeatable` accumulate vs too-many, `=`/glued/missing/empty/`-`-next, `-o=value` error, `--` text incl. `-x`, help before/after/after-`--`/`--help=x`/`--no-help`, unknown global vs unknown command-option vs unknown command, empty `argv`.
 - [ ] T005 Verify: `npm test` + `npm run typecheck` green; live `dchat --help` → general help exit 0.

@@ -1,5 +1,5 @@
 // Shared CLI shape (spec 002): Flag / Option / ArgDef / Command, single-scan parser.
-// --help / -h is a loop rule, never declared in any defs list.
+// No hard-coded spellings: every dash-token resolves through the visible defs.
 // scanArgv is standalone: testable on fake defs, independent of any command.
 // Scan only: names, defs, values, chunks. Help texts and execution live above (see spec 002 Scope).
 // The largest params count any command accepts. Doubles as the infinity
@@ -19,8 +19,12 @@ export interface Option {
 	repeatable: boolean;
 }
 
-// kind lives only where the two are mixed; Flag and Option stay clean.
-export type ArgDef = { kind: "flag"; def: Flag } | { kind: "option"; def: Option };
+// kind + global + skipArity live only in the wrapper; Flag and Option stay clean.
+// global: true stays visible after a command word; skipArity (flag only):
+// when the flag is set, the arity check is skipped (help uses it).
+export type ArgDef =
+	| { kind: "flag"; def: Flag; global: boolean; skipArity?: boolean }
+	| { kind: "option"; def: Option; global: boolean };
 
 export interface Command {
 	name: string;
@@ -36,16 +40,6 @@ export interface Command {
 // Single named map for every flag state and option value, declared once
 // and used by every result arm: flags store booleans, options store arrays.
 export type ArgValues = Record<string, boolean | string[]>;
-
-export interface GeneralHelpPayload {
-	argValues: ArgValues;
-}
-
-export interface CommandHelpPayload {
-	command: Command;
-	argValues: ArgValues;
-	params: string[];
-}
 
 export interface NoCommandPayload {
 	argValues: ArgValues;
@@ -68,14 +62,13 @@ export interface ParseErrorPayload {
 // payloads stay clean (a payload knows nothing about the unions it joins).
 // Expected scan failures are the parse-error arm (message + exit code +
 // resolved word; no help text — the entry point restores the block itself),
-// never exceptions. Bare `help?` on an unstaged result made no sense — now
-// the arm tells it.
+// never exceptions.
+// A set help flag is NOT a scan outcome: it rides inside argValues of the
+// normal arm (run / no-command) and the entry point reads it first.
 // Declared with interfaces (plain structural shapes, erased at runtime —
 // the C# record equivalent, not class: nothing to construct or extend,
 // the `kind` string already discriminates).
 export type ScanResult =
-	| { kind: "general-help"; result: GeneralHelpPayload }
-	| { kind: "command-help"; result: CommandHelpPayload }
 	| { kind: "run"; result: RunPayload }
 	| { kind: "no-command"; result: NoCommandPayload }
 	| { kind: "parse-error"; result: ParseErrorPayload };
@@ -104,7 +97,8 @@ function dedupRefs(defs: ArgDef[]): ArgDef[] {
 }
 
 // Registration errors are programmer errors: same spelling on two different
-// entries is rejected loudly instead of silently shadowing.
+// entries is rejected loudly instead of silently shadowing. The same
+// referenced object counted twice is one rule, not a duplicate.
 function assertUnique(active: ArgDef[], label: string): void {
 	const seen = new Map<string, ArgDef>();
 	for (const def of active) {
@@ -137,18 +131,27 @@ function findExact(active: ArgDef[], token: string): ArgDef | undefined {
 	return active.find((d) => token === d.def.name || (d.def.alias !== "" && token === d.def.alias));
 }
 
-// Single left-to-right scan. Help is remembered, not terminal: the scan keeps
-// going so later tokens may still fail (an error always beats help).
-// Expected input failures return the parse-error arm (ADR-004), never throw.
+// Single left-to-right scan. No hard-coded spellings: every dash-token
+// resolves through the visible defs. Expected input failures return the
+// parse-error arm (ADR-004), never throw.
 // Only programmer bugs (duplicate registration) throw, as plain Errors.
 export function scanArgv(
 	argv: string[],
-	globals: ArgDef[],
+	generals: ArgDef[],
 	commands: Command[],
 ): ScanResult {
-	assertUnique(dedupRefs(globals), "globals");
+	assertUnique(dedupRefs(generals), "generals");
 	for (const c of commands) {
-		assertUnique(dedupRefs([...globals, ...c.defs]), `command ${c.name}`);
+		// The same referenced general counted twice is one rule (dedupRefs);
+		// a DIFFERENT object with the same spelling is the command's rule
+		// after its word (fallback order per FR-001) — NOT a duplicate.
+		// Only clashes OUTSIDE the command's own spellings collide loudly.
+		const ownSpelled = new Set(c.defs.flatMap(spellings));
+		const globalOnly = generals.filter((g) => g.global && !c.defs.includes(g));
+		assertUnique(
+			dedupRefs(globalOnly.filter((g) => !spellings(g).some((s) => ownSpelled.has(s)))),
+			`command ${c.name}`,
+		);
 		assertArityShape(c);
 	}
 	let command: Command | undefined;
@@ -156,10 +159,23 @@ export function scanArgv(
 	const counts = new Map<ArgDef, number>();
 	const texts: string[] = [];
 	let endOfOptions = false;
-	let helpSeen = false;
 
+	// Before the word only generals are visible; after it the command's own
+	// defs are tried first, then generals with global: true — never the rest.
 	const active = (): ArgDef[] =>
-		dedupRefs(command ? [...globals, ...command.defs] : globals);
+		dedupRefs(command ? [...command.defs, ...generals.filter((g) => g.global)] : generals);
+	// Dumb rule resolution (spec 002 FR-001): the command's own entry wins
+	// after its word, else the global general. Never compared, never validated.
+	const ruleFor = (entry: ArgDef): ArgDef => {
+		if (!command) return entry;
+		if (command.defs.includes(entry)) return entry;
+		const spelled = spellings(entry);
+		return (
+			command.defs.find((d) => spellings(d).some((s) => spelled.includes(s))) ??
+			generals.find((g) => g.global && spellings(g).some((s) => spelled.includes(s))) ??
+			entry
+		);
+	};
 	const fail = (message: string, exitCode: 1 | 2): ScanResult => ({
 		kind: "parse-error",
 		result: { message, exitCode, command },
@@ -179,16 +195,6 @@ export function scanArgv(
 	let i = 0;
 	while (i < argv.length) {
 		const t = argv[i];
-		if (!endOfOptions && (t === "--help" || t === "-h")) {
-			// Help needs no counts entry: repeating the same help flag is
-			// harmless — it returns the same block, so it never too-manys.
-			helpSeen = true;
-			i++;
-			continue;
-		}
-		if (!endOfOptions && (t.startsWith("--help=") || t.startsWith("-h="))) {
-			return fail("Unexpected value for --help.", 2);
-		}
 		if (!endOfOptions && t === "--") {
 			endOfOptions = true;
 			i++;
@@ -198,18 +204,19 @@ export function scanArgv(
 			const list = active();
 			const exact = findExact(list, t);
 			if (exact) {
-				if (exact.kind === "flag") {
-					if ((counts.get(exact) ?? 0) >= 1) return tooMany(exact.def.name);
-					counts.set(exact, 1);
-					argValues[storageKey(exact)] = exact.def.name.startsWith("--no-") ? false : true;
+				const rule = ruleFor(exact);
+				if (rule.kind === "flag") {
+					if ((counts.get(rule) ?? 0) >= 1) return tooMany(rule.def.name);
+					counts.set(rule, 1);
+					argValues[storageKey(rule)] = rule.def.name.startsWith("--no-") ? false : true;
 					i++;
 					continue;
 				}
 				const v = argv[i + 1];
-				if (v === undefined || v === "" || v === "--help" || v === "-h" || (v.startsWith("-") && v !== "--")) {
-					return fail(`Missing value for ${exact.def.name}.`, 2);
+				if (v === undefined || v === "" || (v.startsWith("-") && v !== "--")) {
+					return fail(`Missing value for ${rule.def.name}.`, 2);
 				}
-				const stored = storeOption(exact, v);
+				const stored = storeOption(rule, v);
 				if (stored) return stored;
 				i += 2;
 				continue;
@@ -220,20 +227,21 @@ export function scanArgv(
 				const suffix = t.slice(eq + 1);
 				const byName = list.find((d) => lname === d.def.name);
 				if (byName) {
-					if (byName.kind === "flag") {
-						return fail(`Unexpected value for ${byName.def.name}.`, 2);
+					const rule = ruleFor(byName);
+					if (rule.kind === "flag") {
+						return fail(`Unexpected value for ${rule.def.name}.`, 2);
 					}
 					if (suffix === "") {
-						return fail(`Missing value for ${byName.def.name}.`, 2);
+						return fail(`Missing value for ${rule.def.name}.`, 2);
 					}
-					const storedByName = storeOption(byName, suffix);
+					const storedByName = storeOption(rule, suffix);
 					if (storedByName) return storedByName;
 					i++;
 					continue;
 				}
 				const byAlias = list.find((d) => d.def.alias !== "" && lname === d.def.alias);
 				if (byAlias) {
-					return fail(`Unexpected value for ${byAlias.def.name}.`, 2);
+					return fail(`Unexpected value for ${ruleFor(byAlias).def.name}.`, 2);
 				}
 				return fail(`Unknown option: ${t}.`, 2);
 			}
@@ -245,7 +253,11 @@ export function scanArgv(
 					t.length > d.def.alias.length,
 			);
 			if (glued && glued.kind === "option") {
-				const storedGlued = storeOption(glued, t.slice(glued.def.alias.length));
+				const rule = ruleFor(glued);
+				if (rule.kind !== "option") {
+					return fail(`Unexpected value for ${rule.def.name}.`, 2);
+				}
+				const storedGlued = storeOption(rule, t.slice(glued.def.alias.length));
 				if (storedGlued) return storedGlued;
 				i++;
 				continue;
@@ -256,6 +268,27 @@ export function scanArgv(
 			const found = commands.find((c) => c.name === t);
 			if (found) {
 				command = found;
+				// Dumb re-check (spec 002 FR-001): everything collected before
+				// the word is re-checked against the command's rule for it.
+				// Same object is one rule; a different object with one spelling
+				// is the command's rule now — counts restart under it.
+				const before = new Map<ArgDef, number>();
+				for (const [entry, n] of counts) {
+					const rule = ruleFor(entry);
+					before.set(rule, (before.get(rule) ?? 0) + n);
+				}
+				counts.clear();
+				for (const [rule, n] of before) {
+					if (rule.kind === "flag") {
+						if (n >= 1) {
+							if ((counts.get(rule) ?? 0) >= 1) return tooMany(rule.def.name);
+							counts.set(rule, 1);
+						}
+						continue;
+					}
+					if (!rule.def.repeatable && n > 1) return tooMany(rule.def.name);
+					counts.set(rule, n);
+				}
 				i++;
 				continue;
 			}
@@ -266,28 +299,23 @@ export function scanArgv(
 	}
 	// No joining here: the scan hands over raw chunks in order; the command
 	// joins them as it needs (ask joins with one space).
-	// Help is remembered, not terminal: an error above already returned, so
-	// `-h word` and `word -h` resolve to the identical arm here.
-	if (helpSeen) {
-		return command
-			? { kind: "command-help", result: { command, argValues, params: texts } }
-			: { kind: "general-help", result: { argValues } };
-	}
-	// Arity is checked by the scan: a run is valid only when the chunk count
-	// fits [minParams, maxParams]; maxParams >= MAX_PARAMS means unbounded.
-	// command-help skips the check (help works with any count).
 	// A run always carries a command: with no word there is nothing to
 	// dispatch to, so the scan reports facts instead of failing — the entry
-	// point decides (params present: error; empty: plain help, exit 0).
+	// point decides (help flag → block; params present → error; empty → help).
 	// No exitCode here: a missing word is a normal outcome, not a failure.
 	if (!command) {
 		return { kind: "no-command", result: { argValues, params: texts } };
 	}
-	if (texts.length < command.minParams) {
-		return fail(`Too few params for ${command.name}.`, 2);
-	}
-	if (command.maxParams < MAX_PARAMS && texts.length > command.maxParams) {
-		return fail(`Too many params for ${command.name}.`, 2);
+	// Arity is checked on the run path only; a set skipArity flag skips it
+	// (help works with any count — generic marker, never the help name).
+	const skipsArity = [...counts.keys()].some((e) => e.kind === "flag" && e.skipArity === true);
+	if (!skipsArity) {
+		if (texts.length < command.minParams) {
+			return fail(`Too few params for ${command.name}.`, 2);
+		}
+		if (command.maxParams < MAX_PARAMS && texts.length > command.maxParams) {
+			return fail(`Too many params for ${command.name}.`, 2);
+		}
 	}
 	return { kind: "run", result: { command, argValues, params: texts } };
 }
